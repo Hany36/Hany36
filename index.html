@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>블록 월드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<style>
+/* Layout: full-screen 3D view; HUD pinned to the edges (info top-left, menu top-right,
+   hotbar bottom-center, touch joystick bottom-left, touch buttons bottom-right). Single sky look. */
+:root {
+  --sky: #8cc8f2;
+  --panel: rgba(14, 18, 30, .74);
+  --panel-solid: #161c2c;
+  --line: rgba(255, 255, 255, .22);
+  --ink: #ffffff;
+  --muted: #c3cbe0;
+  --grass: #7cc142;
+  --grass-d: #4b8a22;
+  --font-display: "Black Han Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--sky); color: var(--ink); }
+body { font: 14px/1.45 var(--font-body); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.hud { position: fixed; inset: 0; pointer-events: none; }
+.hud > * { pointer-events: auto; }
+.cross { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); pointer-events: none; }
+.cross::before, .cross::after { content: ""; position: absolute; background: rgba(255,255,255,.9); box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
+.cross::after { top: 10px; left: 0; height: 2px; width: 22px; }
+
+.info { position: fixed; left: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); padding: 6px 10px; border-radius: 10px; background: var(--panel); font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; pointer-events: none; }
+.info b { font-family: var(--font-display); font-weight: 400; font-size: 15px; letter-spacing: .02em; }
+.menu-btn { position: fixed; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--panel); font-weight: 700; }
+
+.hotbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--panel); max-width: calc(100% - 24px); }
+.slot { position: relative; width: 48px; height: 48px; flex: 0 1 48px; min-width: 30px; border: 2px solid transparent; border-radius: 8px; background: rgba(255,255,255,.06); padding: 2px; display: grid; place-items: center; }
+.slot img { width: 100%; height: 100%; image-rendering: pixelated; }
+.slot[aria-pressed="true"] { border-color: #fff; background: rgba(255,255,255,.18); }
+.slot span { position: absolute; left: 3px; top: 1px; font-size: 10px; font-weight: 700; text-shadow: 0 1px 2px #000; }
+.bname { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 3px 12px; border-radius: 999px; background: var(--panel); font-weight: 700; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .4s; }
+
+/* touch controls */
+.joy { position: fixed; left: 18px; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); width: 130px; height: 130px; border-radius: 50%; background: rgba(14,18,30,.35); border: 2px solid var(--line); touch-action: none; }
+.joy i { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,.55); }
+.tbtns { position: fixed; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: 64px 64px; gap: 10px; }
+.tbtn { width: 64px; height: 64px; border: 2px solid var(--line); border-radius: 18px; background: rgba(14,18,30,.5); font-weight: 700; font-size: 13px; display: grid; place-items: center; touch-action: none; }
+.tbtn.big { grid-column: 2; grid-row: 1 / span 2; height: 138px; font-size: 15px; }
+.tbtn.on { background: var(--grass); border-color: #fff; color: #10200a; }
+.mode-break { background: rgba(200, 70, 60, .7); }
+.mode-place { background: rgba(70, 140, 220, .7); }
+
+.water { position: fixed; inset: 0; background: rgba(30, 80, 170, .38); pointer-events: none; }
+
+/* overlays */
+.overlay { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgba(8, 12, 24, .55); }
+.card { width: 100%; max-width: 420px; max-height: 100%; overflow-y: auto; padding: 22px 18px; border-radius: 18px; background: var(--panel-solid); display: flex; flex-direction: column; gap: 12px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+.card h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 46px; line-height: 1.05; color: var(--grass); text-shadow: 0 4px 0 #2c5512; text-wrap: balance; }
+.card h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 28px; }
+.card p { margin: 0; color: var(--muted); }
+.icons { display: flex; justify-content: center; gap: 4px; }
+.icons img { width: 40px; height: 40px; image-rendering: pixelated; }
+.keys { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; text-align: left; font-size: 13px; }
+.keys dt { font-weight: 700; white-space: nowrap; }
+.keys dd { margin: 0; color: var(--muted); }
+.btn { height: 50px; border: 0; border-radius: 12px; background: var(--grass); color: #10200a; font-family: var(--font-display); font-size: 20px; box-shadow: 0 4px 0 var(--grass-d); }
+.btn:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--grass-d); }
+.btn.ghost { background: #2a3350; color: var(--ink); box-shadow: 0 4px 0 #11172a; font-size: 16px; }
+.btn.danger { background: #d9534f; color: #fff; box-shadow: 0 4px 0 #8f2b28; font-size: 16px; }
+.note { font-size: 12px; color: var(--muted); }
+.err { color: #ffb4a8; }
+@media (max-width: 420px) { .slot { height: 40px; } .bname { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); } }
+@media (prefers-reduced-motion: reduce) { .bname { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="블록 월드 화면"></canvas>
+<div class="water" id="waterTint" hidden></div>
+
+<div class="hud" id="hud">
+  <div class="cross"></div>
+  <div class="info" id="info"><b>블록 월드</b><br><span id="coords">-</span></div>
+  <button class="menu-btn" id="menuBtn" type="button">메뉴</button>
+  <div class="bname" id="bname"></div>
+  <div class="hotbar" id="hotbar" role="toolbar" aria-label="블록 선택"></div>
+  <div class="joy" id="joy" hidden><i id="knob"></i></div>
+  <div class="tbtns" id="tbtns" hidden>
+    <button class="tbtn mode-break" id="modeBtn" type="button">부수기</button>
+    <button class="tbtn big" id="jumpBtn" type="button">점프</button>
+    <button class="tbtn" id="flyBtn" type="button">비행</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"><div class="card" id="card"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+// ---------- world constants ----------
+const WX = 128, WZ = 128, WY = 64, CS = 16, NCX = WX / CS, NCZ = WZ / CS, SEA = 20;
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, LOG = 5, LEAVES = 6, PLANKS = 7,
+  GLASS = 8, BRICK = 9, WATER = 10, COBBLE = 11, SNOW = 12;
+// t: atlas tiles for [top, bottom, side]; cut: has see-through pixels; liquid: walk-through water
+const B = [];
+B[GRASS] = { n: '잔디', t: [0, 2, 1] };
+B[DIRT] = { n: '흙', t: [2, 2, 2] };
+B[STONE] = { n: '돌', t: [3, 3, 3] };
+B[SAND] = { n: '모래', t: [4, 4, 4] };
+B[LOG] = { n: '통나무', t: [6, 6, 5] };
+B[LEAVES] = { n: '나뭇잎', t: [7, 7, 7], cut: true };
+B[PLANKS] = { n: '나무 판자', t: [8, 8, 8] };
+B[GLASS] = { n: '유리', t: [9, 9, 9], cut: true };
+B[BRICK] = { n: '벽돌', t: [10, 10, 10] };
+B[WATER] = { n: '물', t: [11, 11, 11], liquid: true };
+B[COBBLE] = { n: '조약돌', t: [12, 12, 12] };
+B[SNOW] = { n: '눈', t: [13, 2, 14] };
+const HOTBAR = [GRASS, DIRT, STONE, COBBLE, PLANKS, LOG, BRICK, GLASS, SAND];
+const opaque = id => id !== AIR && !B[id].cut && !B[id].liquid;
+const solid = id => id !== AIR && !B[id].liquid;
+
+// ---------- seeded helpers ----------
+function hash3(x, y, s) {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(s, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function noise2(x, y, s) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash3(xi, yi, s), b = hash3(xi + 1, yi, s), c = hash3(xi, yi + 1, s), d = hash3(xi + 1, yi + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x, y, s, oct) {
+  let sum = 0, amp = 1, norm = 0, f = 1;
+  for (let i = 0; i < oct; i++) { sum += noise2(x * f, y * f, s + i * 31) * amp; norm += amp; amp *= .5; f *= 2; }
+  return sum / norm;
+}
+
+// ---------- block textures (drawn in code, 16x16 tiles in a 4x4 atlas) ----------
+const TS = 16, AT = 4;
+const atlasCanvas = document.createElement('canvas');
+atlasCanvas.width = atlasCanvas.height = TS * AT;
+(function paintAtlas() {
+  const g = atlasCanvas.getContext('2d');
+  const img = g.createImageData(TS * AT, TS * AT);
+  const put = (tile, f) => {
+    const ox = (tile % AT) * TS, oy = Math.floor(tile / AT) * TS;
+    for (let y = 0; y < TS; y++) for (let x = 0; x < TS; x++) {
+      const c = f(x, y, hash3(x + tile * 97, y, 7), hash3(x, y + tile * 53, 11));
+      const i = ((oy + y) * TS * AT + ox + x) * 4;
+      img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = c.length > 3 ? c[3] : 255;
+    }
+  };
+  const jit = (c, r, amt) => c.map(v => Math.max(0, Math.min(255, Math.round(v * (1 + (r - .5) * amt)))));
+  const dirt = (x, y, r) => jit([134, 96, 67], r, .35);
+  put(0, (x, y, r) => jit([96, 160, 54], r, .35));
+  put(1, (x, y, r, r2) => (y < 3 + (hash3(x, 1, 5) < .5 ? 1 : 0) + (hash3(x, 2, 6) < .2 ? 1 : 0) ? jit([96, 160, 54], r, .3) : dirt(x, y, r)));
+  put(2, dirt);
+  put(3, (x, y, r, r2) => jit(r2 < .12 ? [96, 96, 98] : [128, 128, 130], r, .25));
+  put(4, (x, y, r) => jit([222, 208, 160], r, .12));
+  put(5, (x, y, r) => jit(x % 4 === 0 ? [74, 54, 32] : [104, 78, 46], r, .25));
+  put(6, (x, y, r) => {
+    const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5));
+    if (d > 6.5) return jit([104, 78, 46], r, .2);
+    return jit(Math.floor(d) % 2 ? [176, 140, 88] : [150, 116, 70], r, .12);
+  });
+  put(7, (x, y, r, r2) => (r2 < .2 ? [0, 0, 0, 0] : jit(r < .3 ? [40, 98, 30] : [62, 132, 44], r2, .3)));
+  put(8, (x, y, r) => {
+    const row = Math.floor(y / 4), seam = (row % 2 ? 3 : 11);
+    if (y % 4 === 3 || x === seam) return jit([112, 84, 50], r, .15);
+    return jit([170, 132, 82], r, .18);
+  });
+  put(9, (x, y) => {
+    if (x === 0 || y === 0 || x === 15 || y === 15) return [214, 236, 245, 255];
+    if ((x - y === 3 || x - y === 4) && x > 4 && x < 12) return [255, 255, 255, 170];
+    return [0, 0, 0, 0];
+  });
+  put(10, (x, y, r) => {
+    const row = Math.floor(y / 4), off = row % 2 ? 4 : 0;
+    if (y % 4 === 0 || (x + off) % 8 === 0) return jit([196, 186, 174], r, .1);
+    return jit([156, 66, 50], r, .22);
+  });
+  put(11, (x, y, r) => jit([52, 104, 210], r, .12));
+  const pts = Array.from({ length: 7 }, (_, i) => [hash3(i, 1, 21) * 16, hash3(i, 2, 21) * 16, .7 + hash3(i, 3, 21) * .4]);
+  put(12, (x, y, r) => {
+    let a = 99, b = 99, k = 0;
+    for (const [px, py] of pts) for (const dx of [-16, 0, 16]) for (const dy of [-16, 0, 16]) {
+      const d = Math.hypot(x - px - dx, y - py - dy);
+      if (d < a) { b = a; a = d; k = pts.findIndex(p => p[0] === px); } else if (d < b) b = d;
+    }
+    if (b - a < 1.2) return jit([78, 78, 80], r, .2);
+    return jit([132, 132, 134].map(v => v * pts[k][2]), r, .15);
+  });
+  put(13, (x, y, r) => jit([238, 244, 250], r, .06));
+  put(14, (x, y, r) => (y < 4 + (hash3(x, 4, 9) < .4 ? 1 : 0) ? jit([238, 244, 250], r, .06) : dirt(x, y, r)));
+  g.putImageData(img, 0, 0);
+})();
+function tileUV(t) {
+  const e = .0008, c = t % AT, r = Math.floor(t / AT);
+  return [c / AT + e, 1 - (r + 1) / AT + e, (c + 1) / AT - e, 1 - r / AT - e];
+}
+// Isometric block icon for the hotbar and title screen
+const iconCache = {};
+function blockIcon(id) {
+  if (iconCache[id]) return iconCache[id];
+  const c = document.createElement('canvas'); c.width = c.height = 48;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  const tile = t => [(t % AT) * TS, Math.floor(t / AT) * TS];
+  const face = (t, m, shade) => {
+    g.setTransform(...m);
+    const [sx, sy] = tile(t);
+    g.drawImage(atlasCanvas, sx, sy, TS, TS, 0, 0, TS, TS);
+    if (shade) { g.fillStyle = `rgba(0,0,0,${shade})`; g.fillRect(0, 0, TS, TS); }
+  };
+  face(B[id].t[2], [1.25, .625, 0, 1.25, 4, 14], .22);
+  face(B[id].t[2], [1.25, -.625, 0, 1.25, 24, 24], .38);
+  face(B[id].t[0], [1.25, -.625, 1.25, .625, 4, 14], 0);
+  return (iconCache[id] = c.toDataURL());
+}
+
+// ---------- world data ----------
+const world = new Uint8Array(WX * WY * WZ);
+const idx = (x, y, z) => (y * WZ + z) * WX + x;
+const inside = (x, y, z) => x >= 0 && x < WX && z >= 0 && z < WZ && y >= 0 && y < WY;
+function get(x, y, z) {
+  if (y < 0) return STONE;
+  if (!inside(x, y, z)) return AIR;
+  return world[idx(x, y, z)];
+}
+function heightAt(x, z, seed) {
+  const n = fbm(x / 56, z / 56, seed, 4);
+  const m = fbm(x / 150 + 50, z / 150, seed + 9, 3);
+  return Math.min(WY - 10, Math.floor(12 + n * 16 + Math.max(0, m - .48) * 70));
+}
+function generate(seed) {
+  world.fill(AIR);
+  const hs = new Int16Array(WX * WZ);
+  for (let z = 0; z < WZ; z++) for (let x = 0; x < WX; x++) {
+    const h = heightAt(x, z, seed); hs[z * WX + x] = h;
+    const beach = h <= SEA + 1, peak = h >= 44;
+    for (let y = 0; y <= Math.max(h, SEA); y++) {
+      let id;
+      if (y > h) id = WATER;
+      else if (y === h) id = beach ? SAND : peak ? SNOW : GRASS;
+      else if (y > h - 4) id = beach ? SAND : DIRT;
+      else id = STONE;
+      world[idx(x, y, z)] = id;
+    }
+  }
+  for (let z = 3; z < WZ - 3; z++) for (let x = 3; x < WX - 3; x++) {
+    const h = hs[z * WX + x];
+    if (world[idx(x, h, z)] !== GRASS || hash3(x, z, seed + 3) > .014) continue;
+    const th = 4 + Math.floor(hash3(x, z, seed + 4) * 3);
+    for (let y = h + 1; y <= h + th; y++) world[idx(x, y, z)] = LOG;
+    for (let dy = th - 2; dy <= th + 1; dy++) {
+      const r = dy >= th ? 1 : 2;
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) === r && Math.abs(dz) === r && (r === 1 || hash3(x + dx, z + dz + dy, seed) < .5)) continue;
+        const X = x + dx, Y = h + dy + 1, Z = z + dz;
+        if (inside(X, Y, Z) && world[idx(X, Y, Z)] === AIR) world[idx(X, Y, Z)] = LEAVES;
+      }
+    }
+  }
+}
+
+// ---------- save ----------
+const SAVE_KEY = 'blockworld.v1';
+let save = null;
+function loadSave() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; } }
+function writeSave() {
+  if (!save) return;
+  save.p = [P.x, P.y, P.z, P.yaw, P.pitch]; save.fly = P.fly; save.time = dayT; save.slot = slot;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* storage unavailable */ }
+}
+let saveTimer = 0;
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(writeSave, 600); }
+
+// ---------- rendering ----------
+const canvas = document.getElementById('view');
+let renderer, scene, camera, atlas, matSolid, matWater, highlight, clouds;
+const chunkMeshes = [];
+const dirty = new Set();
+function initThree() {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x8cc8f2, 38, 105);
+  camera = new THREE.PerspectiveCamera(72, 1, .08, 400);
+  camera.rotation.order = 'YXZ';
+  atlas = new THREE.CanvasTexture(atlasCanvas);
+  atlas.magFilter = THREE.NearestFilter; atlas.minFilter = THREE.NearestFilter; atlas.generateMipmaps = false;
+  matSolid = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, alphaTest: .5 });
+  matWater = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, opacity: .72, depthWrite: false, side: THREE.DoubleSide });
+  const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
+  highlight = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: .55 }));
+  highlight.visible = false; scene.add(highlight);
+  // drifting blocky clouds
+  const cc = document.createElement('canvas'); cc.width = cc.height = 64;
+  const cg = cc.getContext('2d');
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    if (fbm(x / 9, y / 9, 77, 2) > .6) { cg.fillStyle = '#fff'; cg.fillRect(x, y, 1, 1); }
+  }
+  const ct = new THREE.CanvasTexture(cc);
+  ct.magFilter = THREE.NearestFilter; ct.minFilter = THREE.NearestFilter; ct.generateMipmaps = false;
+  ct.wrapS = ct.wrapT = THREE.RepeatWrapping; ct.repeat.set(3, 3);
+  clouds = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshBasicMaterial({ map: ct, transparent: true, opacity: .85, depthWrite: false, fog: false }));
+  clouds.rotation.x = -Math.PI / 2; clouds.position.set(WX / 2, 62, WZ / 2);
+  scene.add(clouds);
+  for (let cz = 0; cz < NCZ; cz++) for (let cx = 0; cx < NCX; cx++) chunkMeshes.push({ solid: null, water: null });
+  resize();
+}
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', () => { if (renderer) resize(); });
+
+// Faces: corners in BL, BR, TR, TL order seen from outside; shade bakes simple directional light.
+const FACES = [
+  { n: [1, 0, 0], c: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], s: .8, t: 2 },
+  { n: [-1, 0, 0], c: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], s: .8, t: 2 },
+  { n: [0, 1, 0], c: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], s: 1, t: 0 },
+  { n: [0, -1, 0], c: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], s: .55, t: 1 },
+  { n: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], s: .68, t: 2 },
+  { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], s: .68, t: 2 },
+];
+const AO = [.5, .68, .84, 1];
+function showFace(id, nb) {
+  if (nb === AIR) return true;
+  if (B[id].liquid) return false;
+  if (opaque(nb)) return false;
+  return nb !== id;
+}
+function buildChunk(cx, cz) {
+  const S = { p: [], uv: [], c: [], i: [] }, Wt = { p: [], uv: [], c: [], i: [] };
+  const x0 = cx * CS, z0 = cz * CS;
+  for (let y = 0; y < WY; y++) for (let z = z0; z < z0 + CS; z++) for (let x = x0; x < x0 + CS; x++) {
+    const id = world[idx(x, y, z)];
+    if (id === AIR) continue;
+    const liquid = B[id].liquid, out = liquid ? Wt : S;
+    for (const f of FACES) {
+      const nx = x + f.n[0], ny = y + f.n[1], nz = z + f.n[2];
+      if (!showFace(id, get(nx, ny, nz))) continue;
+      const [u0, v0, u1, v1] = tileUV(B[id].t[f.t]);
+      const uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+      const ax = f.n[0] ? 0 : f.n[1] ? 1 : 2, t1 = (ax + 1) % 3, t2 = (ax + 2) % 3;
+      const base = out.p.length / 3, ao = [];
+      const lowerTop = liquid && get(x, y + 1, z) !== WATER;
+      for (let k = 0; k < 4; k++) {
+        const c = f.c[k];
+        out.p.push(x + c[0], y + c[1] - (lowerTop && c[1] === 1 ? .12 : 0), z + c[2]);
+        out.uv.push(uvs[k][0], uvs[k][1]);
+        let a = 3;
+        if (!liquid) {
+          const q = [nx, ny, nz], d1 = [0, 0, 0], d2 = [0, 0, 0];
+          d1[t1] = c[t1] ? 1 : -1; d2[t2] = c[t2] ? 1 : -1;
+          const s1 = opaque(get(q[0] + d1[0], q[1] + d1[1], q[2] + d1[2])) ? 1 : 0;
+          const s2 = opaque(get(q[0] + d2[0], q[1] + d2[1], q[2] + d2[2])) ? 1 : 0;
+          const cr = opaque(get(q[0] + d1[0] + d2[0], q[1] + d1[1] + d2[1], q[2] + d1[2] + d2[2])) ? 1 : 0;
+          a = s1 && s2 ? 0 : 3 - s1 - s2 - cr;
+        }
+        ao.push(a);
+        const l = f.s * AO[a];
+        out.c.push(l, l, l);
+      }
+      if (ao[0] + ao[2] < ao[1] + ao[3]) out.i.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+      else out.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  const slotMeshes = chunkMeshes[cz * NCX + cx];
+  const make = (data, mat, key) => {
+    if (slotMeshes[key]) { scene.remove(slotMeshes[key]); slotMeshes[key].geometry.dispose(); slotMeshes[key] = null; }
+    if (!data.i.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(data.p, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(data.c, 3));
+    geo.setIndex(new THREE.Uint32BufferAttribute(data.i, 1));
+    const mesh = new THREE.Mesh(geo, mat);
+    if (key === 'water') mesh.renderOrder = 1;
+    scene.add(mesh); slotMeshes[key] = mesh;
+  };
+  make(S, matSolid, 'solid');
+  make(Wt, matWater, 'water');
+}
+function markDirty(x, z) {
+  const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
+  const add = (a, b) => { if (a >= 0 && a < NCX && b >= 0 && b < NCZ) dirty.add(b * NCX + a); };
+  add(cx, cz);
+  if (x % CS === 0) add(cx - 1, cz);
+  if (x % CS === CS - 1) add(cx + 1, cz);
+  if (z % CS === 0) add(cx, cz - 1);
+  if (z % CS === CS - 1) add(cx, cz + 1);
+  // corner neighbours matter for ambient occlusion
+  if (x % CS === 0 && z % CS === 0) add(cx - 1, cz - 1);
+  if (x % CS === CS - 1 && z % CS === CS - 1) add(cx + 1, cz + 1);
+  if (x % CS === 0 && z % CS === CS - 1) add(cx - 1, cz + 1);
+  if (x % CS === CS - 1 && z % CS === 0) add(cx + 1, cz - 1);
+}
+function setBlock(x, y, z, id) {
+  if (!inside(x, y, z)) return;
+  world[idx(x, y, z)] = id;
+  save.edits[idx(x, y, z)] = id;
+  markDirty(x, z);
+  saveSoon();
+}
+
+// ---------- player ----------
+const P = { x: 64, y: 40, z: 64, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, ground: false, fly: false };
+const HW = .3, PH = 1.8, EYE = 1.62, GRAV = 28, JUMP = 8.6, WALK = 4.6, FLY = 10, EPS = 1e-4;
+function collides(x, y, z) {
+  for (let by = Math.floor(y + EPS); by <= Math.floor(y + PH - EPS); by++)
+    for (let bz = Math.floor(z - HW + EPS); bz <= Math.floor(z + HW - EPS); bz++)
+      for (let bx = Math.floor(x - HW + EPS); bx <= Math.floor(x + HW - EPS); bx++)
+        if (solid(get(bx, by, bz))) return true;
+  return false;
+}
+function moveAxis(ax, d) {
+  if (!d) return false;
+  const n = Math.ceil(Math.abs(d) / .2), step = d / n;
+  for (let i = 0; i < n; i++) {
+    P[ax] += step;
+    if (collides(P.x, P.y, P.z)) {
+      P[ax] -= step;
+      // close the remaining gap to the face we hit
+      if (ax === 'y') P.y = step < 0 ? Math.floor(P.y) : Math.ceil(P.y + PH) - PH;
+      else {
+        const half = HW;
+        P[ax] = step > 0 ? Math.ceil(P[ax] + half) - half - EPS * 2 : Math.floor(P[ax] - half) + half + EPS * 2;
+        if (collides(P.x, P.y, P.z)) P[ax] -= step > 0 ? EPS * 4 : -EPS * 4;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+const inWater = () => get(Math.floor(P.x), Math.floor(P.y + .4), Math.floor(P.z)) === WATER;
+const eyeInWater = () => get(Math.floor(P.x), Math.floor(P.y + EYE), Math.floor(P.z)) === WATER;
+function spawnPoint() {
+  for (let r = 0; r < 60; r++) for (let a = 0; a < 16; a++) {
+    const x = Math.floor(WX / 2 + Math.cos(a / 16 * Math.PI * 2) * r), z = Math.floor(WZ / 2 + Math.sin(a / 16 * Math.PI * 2) * r);
+    let y = WY - 1;
+    while (y > 0 && get(x, y, z) === AIR) y--;
+    if (solid(get(x, y, z)) && get(x, y, z) !== LEAVES) return [x + .5, y + 1, z + .5];
+  }
+  return [WX / 2 + .5, WY - 5, WZ / 2 + .5];
+}
+
+// ---------- input ----------
+const keys = {};
+const joy = { x: 0, y: 0 };
+let slot = 0, mode = 'break', jumpHeld = false, locked = false, playing = false;
+const touch = matchMedia('(pointer: coarse)').matches;
+window.addEventListener('keydown', e => {
+  if (!playing) return;
+  keys[e.code] = true;
+  if (e.code === 'KeyF') toggleFly();
+  if (/^Digit[1-9]$/.test(e.code)) selectSlot(+e.code.slice(5) - 1);
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+canvas.addEventListener('wheel', e => { if (playing) selectSlot((slot + (e.deltaY > 0 ? 1 : -1) + HOTBAR.length) % HOTBAR.length); }, { passive: true });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// Desktop with pointer lock: mouse moves the view, left breaks, right places.
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === canvas;
+  if (!locked && playing && !touch && !lockFallback) openMenu();
+});
+document.addEventListener('mousemove', e => {
+  if (!locked) return;
+  look(e.movementX, e.movementY, .0024);
+});
+let holdBtn = -1, holdT = 0;
+canvas.addEventListener('mousedown', e => {
+  if (!locked) return;
+  holdBtn = e.button; holdT = 0;
+  act(e.button === 2 ? 'place' : 'break');
+});
+window.addEventListener('mouseup', () => { holdBtn = -1; });
+
+// Touch and drag fallback: drag to look, short tap acts at the crosshair.
+let lockFallback = false;
+const drags = new Map();
+canvas.addEventListener('pointerdown', e => {
+  if (!playing || locked) return;
+  if (e.pointerType === 'mouse' && !lockFallback) return;
+  drags.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), moved: false, btn: e.button });
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  const d = drags.get(e.pointerId); if (!d) return;
+  look(e.clientX - d.x, e.clientY - d.y, touch ? .006 : .004);
+  d.x = e.clientX; d.y = e.clientY;
+  if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 10) d.moved = true;
+});
+const endDrag = e => {
+  const d = drags.get(e.pointerId); if (!d) return;
+  drags.delete(e.pointerId);
+  if (!d.moved && performance.now() - d.t < 400) act(d.btn === 2 ? 'place' : touch ? mode : 'break');
+};
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', e => drags.delete(e.pointerId));
+
+function look(dx, dy, k) {
+  P.yaw -= dx * k;
+  P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - dy * k));
+}
+
+// Joystick
+const joyEl = document.getElementById('joy'), knob = document.getElementById('knob');
+let joyId = null;
+joyEl.addEventListener('pointerdown', e => { joyId = e.pointerId; joyEl.setPointerCapture(e.pointerId); joyMove(e); });
+joyEl.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyMove(e); });
+const joyEnd = e => { if (e.pointerId !== joyId) return; joyId = null; joy.x = joy.y = 0; knob.style.transform = ''; };
+joyEl.addEventListener('pointerup', joyEnd); joyEl.addEventListener('pointercancel', joyEnd);
+function joyMove(e) {
+  const r = joyEl.getBoundingClientRect(), R = r.width / 2;
+  let dx = e.clientX - r.left - R, dy = e.clientY - r.top - R;
+  const len = Math.hypot(dx, dy), max = R - 20;
+  if (len > max) { dx *= max / len; dy *= max / len; }
+  joy.x = dx / max; joy.y = dy / max;
+  knob.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+const jumpBtn = document.getElementById('jumpBtn');
+jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); jumpHeld = true; jumpBtn.classList.add('on'); });
+const jumpUp = () => { jumpHeld = false; jumpBtn.classList.remove('on'); };
+jumpBtn.addEventListener('pointerup', jumpUp); jumpBtn.addEventListener('pointercancel', jumpUp); jumpBtn.addEventListener('pointerleave', jumpUp);
+document.getElementById('modeBtn').addEventListener('click', () => {
+  mode = mode === 'break' ? 'place' : 'break';
+  const b = document.getElementById('modeBtn');
+  b.textContent = mode === 'break' ? '부수기' : '놓기';
+  b.className = `tbtn mode-${mode}`;
+});
+document.getElementById('flyBtn').addEventListener('click', toggleFly);
+function toggleFly() {
+  P.fly = !P.fly; P.vy = 0;
+  document.getElementById('flyBtn').classList.toggle('on', P.fly);
+  showName(P.fly ? '비행 켜짐' : '비행 꺼짐');
+}
+
+// ---------- hotbar ----------
+const hotbar = document.getElementById('hotbar');
+function buildHotbar() {
+  hotbar.innerHTML = HOTBAR.map((id, i) => `<button class="slot" type="button" data-slot="${i}" aria-pressed="${i === slot}" aria-label="${B[id].n}"><img src="${blockIcon(id)}" alt=""><span>${i + 1}</span></button>`).join('');
+}
+hotbar.addEventListener('click', e => { const b = e.target.closest('[data-slot]'); if (b) selectSlot(+b.dataset.slot); });
+function selectSlot(i) {
+  slot = i;
+  hotbar.querySelectorAll('.slot').forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
+  showName(B[HOTBAR[i]].n);
+  if (touch && mode === 'break') document.getElementById('modeBtn').click();
+}
+let nameTimer = 0;
+function showName(text) {
+  const el = document.getElementById('bname');
+  el.textContent = text; el.style.opacity = 1;
+  clearTimeout(nameTimer); nameTimer = setTimeout(() => { el.style.opacity = 0; }, 1300);
+}
+
+// ---------- block picking ----------
+function raycast(max) {
+  const o = camera.position, d = new THREE.Vector3(); camera.getWorldDirection(d);
+  let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
+  const sx = Math.sign(d.x), sy = Math.sign(d.y), sz = Math.sign(d.z);
+  const tdx = Math.abs(1 / d.x), tdy = Math.abs(1 / d.y), tdz = Math.abs(1 / d.z);
+  let tx = d.x ? (sx > 0 ? x + 1 - o.x : o.x - x) * tdx : Infinity;
+  let ty = d.y ? (sy > 0 ? y + 1 - o.y : o.y - y) * tdy : Infinity;
+  let tz = d.z ? (sz > 0 ? z + 1 - o.z : o.z - z) * tdz : Infinity;
+  let prev = null, t = 0;
+  while (t <= max) {
+    const id = get(x, y, z);
+    if (solid(id) && inside(x, y, z)) return { x, y, z, prev };
+    prev = [x, y, z];
+    if (tx < ty && tx < tz) { x += sx; t = tx; tx += tdx; }
+    else if (ty < tz) { y += sy; t = ty; ty += tdy; }
+    else { z += sz; t = tz; tz += tdz; }
+  }
+  return null;
+}
+function act(kind) {
+  const hit = raycast(6);
+  if (!hit) return;
+  if (kind === 'break') {
+    if (hit.y === 0) return showName('맨 아래 바닥은 부술 수 없어요');
+    setBlock(hit.x, hit.y, hit.z, AIR);
+  } else if (hit.prev) {
+    const [x, y, z] = hit.prev;
+    if (!inside(x, y, z) || solid(get(x, y, z))) return;
+    world[idx(x, y, z)] = HOTBAR[slot];
+    const blocked = collides(P.x, P.y, P.z);
+    world[idx(x, y, z)] = AIR;
+    if (blocked) return;
+    setBlock(x, y, z, HOTBAR[slot]);
+  }
+}
+
+// ---------- day and night ----------
+let dayT = .3;                  // 0..1, .5 is noon
+const DAY_LEN = 480;            // seconds per full day
+const SKY_DAY = new THREE.Color(0x8cc8f2), SKY_DUSK = new THREE.Color(0xf0a070), SKY_NIGHT = new THREE.Color(0x0c1430);
+const skyCol = new THREE.Color();
+function updateSky() {
+  const sun = Math.sin((dayT - .25) * Math.PI * 2);           // 1 at noon, -1 at midnight
+  const light = Math.max(.28, Math.min(1, .55 + sun * .8));
+  if (sun > .2) skyCol.copy(SKY_DAY);
+  else if (sun > -.2) { const k = (sun + .2) / .4; skyCol.copy(SKY_NIGHT).lerp(SKY_DUSK, Math.min(1, k * 1.6)).lerp(SKY_DAY, Math.max(0, k * 1.6 - .6)); }
+  else skyCol.copy(SKY_NIGHT);
+  if (eyeInWater()) skyCol.lerp(new THREE.Color(0x1e4aa0), .7);
+  renderer.setClearColor(skyCol);
+  scene.fog.color.copy(skyCol);
+  matSolid.color.setScalar(light); matWater.color.setScalar(light);
+  clouds.material.opacity = .25 + .6 * Math.max(0, light - .28) / .72;
+  return sun;
+}
+
+// ---------- main loop ----------
+let last = 0, saveClock = 0;
+function frame(ts) {
+  const dt = Math.min(.05, (ts - (last || ts)) / 1000);
+  last = ts;
+  if (playing) update(dt);
+  let built = 0;
+  for (const k of dirty) { dirty.delete(k); buildChunk(k % NCX, Math.floor(k / NCX)); if (++built >= 3) break; }
+  camera.position.set(P.x, P.y + EYE, P.z);
+  camera.rotation.set(P.pitch, P.yaw, 0);
+  const sun = updateSky();
+  const hit = playing ? raycast(6) : null;
+  highlight.visible = !!hit;
+  if (hit) highlight.position.set(hit.x + .5, hit.y + .5, hit.z + .5);
+  clouds.material.map.offset.x = (ts / 1000) * .002;
+  document.getElementById('waterTint').hidden = !eyeInWater();
+  coords.textContent = `X ${Math.floor(P.x)}  Y ${Math.floor(P.y)}  Z ${Math.floor(P.z)} · ${sun > -.1 ? '낮' : '밤'}${P.fly ? ' · 비행' : ''}`;
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+const coords = document.getElementById('coords');
+function update(dt) {
+  dayT = (dayT + dt / DAY_LEN) % 1;
+  // movement input
+  let fx = 0, fz = 0;
+  if (keys.KeyW || keys.ArrowUp) fz += 1;
+  if (keys.KeyS || keys.ArrowDown) fz -= 1;
+  if (keys.KeyA || keys.ArrowLeft) fx -= 1;
+  if (keys.KeyD || keys.ArrowRight) fx += 1;
+  fx += joy.x; fz -= joy.y;
+  const len = Math.hypot(fx, fz);
+  if (len > 1) { fx /= len; fz /= len; }
+  const swim = inWater();
+  const spd = P.fly ? FLY : swim ? WALK * .6 : WALK;
+  const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+  const tvx = (-sy * fz + cy * fx) * spd, tvz = (-cy * fz - sy * fx) * spd;
+  const k = Math.min(1, dt * (P.ground || P.fly ? 14 : 4));
+  P.vx += (tvx - P.vx) * k; P.vz += (tvz - P.vz) * k;
+  const up = keys.Space || jumpHeld, down = keys.ShiftLeft || keys.ShiftRight;
+  if (P.fly) {
+    P.vy = (up ? FLY : 0) - (down ? FLY : 0);
+  } else if (swim) {
+    P.vy = Math.max(-3, P.vy - GRAV * .3 * dt);
+    if (up) P.vy = 3.2;
+  } else {
+    P.vy = Math.max(-50, P.vy - GRAV * dt);
+    if (up && P.ground) { P.vy = JUMP; P.ground = false; }
+  }
+  moveAxis('x', P.vx * dt);
+  moveAxis('z', P.vz * dt);
+  const hitY = moveAxis('y', P.vy * dt);
+  P.ground = hitY && P.vy < 0;
+  if (hitY) P.vy = 0;
+  // keep inside the world
+  P.x = Math.max(HW, Math.min(WX - HW, P.x));
+  P.z = Math.max(HW, Math.min(WZ - HW, P.z));
+  if (P.y < -10) { const s = spawnPoint(); P.x = s[0]; P.y = s[1]; P.z = s[2]; P.vy = 0; }
+  if (P.y > WY + 20) P.y = WY + 20;
+  // hold mouse button to keep breaking or placing
+  if (holdBtn >= 0) { holdT += dt; if (holdT > .28) { holdT = 0; act(holdBtn === 2 ? 'place' : 'break'); } }
+  saveClock += dt;
+  if (saveClock > 5) { saveClock = 0; writeSave(); }
+}
+
+// ---------- screens ----------
+const overlay = document.getElementById('overlay'), card = document.getElementById('card');
+const controlsHelp = () => touch ? `
+  <dl class="keys">
+    <dt>왼쪽 조이스틱</dt><dd>이동</dd>
+    <dt>화면 드래그</dt><dd>둘러보기</dd>
+    <dt>화면 탭</dt><dd>가운데 조준점에 블록 부수기 또는 놓기</dd>
+    <dt>부수기/놓기</dt><dd>탭할 때 할 동작 바꾸기 (블록을 고르면 놓기로 바뀌어요)</dd>
+    <dt>점프 · 비행</dt><dd>비행 중에는 점프 버튼을 누르고 있으면 올라가요</dd>
+  </dl>` : `
+  <dl class="keys">
+    <dt>W A S D</dt><dd>이동</dd>
+    <dt>마우스</dt><dd>둘러보기</dd>
+    <dt>왼쪽 클릭</dt><dd>블록 부수기 (누르고 있으면 계속)</dd>
+    <dt>오른쪽 클릭</dt><dd>블록 놓기</dd>
+    <dt>스페이스</dt><dd>점프, 비행 중 위로</dd>
+    <dt>Shift</dt><dd>비행 중 아래로</dd>
+    <dt>F</dt><dd>비행 켜기/끄기</dd>
+    <dt>1~9 · 휠</dt><dd>블록 고르기</dd>
+    <dt>Esc</dt><dd>메뉴</dd>
+  </dl>`;
+function showStart(fresh) {
+  card.innerHTML = `
+    <div class="icons">${[GRASS, LOG, STONE, BRICK, GLASS].map(id => `<img src="${blockIcon(id)}" alt="">`).join('')}</div>
+    <h1>블록 월드</h1>
+    <p>블록을 부수고 쌓아서 나만의 세상을 만들어 보세요. 만든 것은 이 브라우저에 저장돼요.</p>
+    ${controlsHelp()}
+    <button class="btn" type="button" data-act="play">${fresh ? '시작하기' : '이어서 하기'}</button>
+    <button class="btn ghost" type="button" data-act="newWorld">새 세계 만들기</button>`;
+  overlay.hidden = false;
+}
+function openMenu() {
+  playing = false;
+  for (const k in keys) keys[k] = false;
+  writeSave();
+  card.innerHTML = `
+    <h2>일시정지</h2>
+    ${controlsHelp()}
+    <button class="btn" type="button" data-act="play">계속하기</button>
+    <button class="btn ghost" type="button" data-act="newWorld">새 세계 만들기</button>`;
+  overlay.hidden = false;
+}
+function confirmNew() {
+  card.innerHTML = `
+    <h2>새 세계를 만들까요?</h2>
+    <p>지금 세계에서 부수고 쌓은 것은 모두 사라져요.</p>
+    <button class="btn danger" type="button" data-act="newYes">네, 새로 만들기</button>
+    <button class="btn ghost" type="button" data-act="back">돌아가기</button>`;
+}
+function play() {
+  overlay.hidden = true;
+  playing = true; last = 0;
+  if (!touch && canvas.requestPointerLock) {
+    try {
+      const r = canvas.requestPointerLock();
+      if (r && r.catch) r.catch(() => { lockFallback = true; showName('마우스로 드래그해서 둘러보세요'); });
+    } catch (e) { lockFallback = true; }
+    setTimeout(() => { if (playing && !locked) { lockFallback = true; showName('마우스로 드래그해서 둘러보세요'); } }, 600);
+  }
+}
+function newWorld() {
+  save = { seed: (Math.random() * 1e9) | 0, edits: {} };
+  startWorld();
+  writeSave();
+  play();
+}
+overlay.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act;
+  if (a === 'play') play();
+  else if (a === 'newWorld') confirmNew();
+  else if (a === 'newYes') newWorld();
+  else if (a === 'back') { overlay.hidden = true; openMenu(); }
+});
+document.getElementById('menuBtn').addEventListener('click', () => { if (document.pointerLockElement) document.exitPointerLock(); openMenu(); });
+window.addEventListener('keydown', e => { if (e.code === 'Escape' && playing && lockFallback) openMenu(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) writeSave(); });
+
+function startWorld() {
+  generate(save.seed);
+  for (const k in save.edits) world[+k] = save.edits[k];
+  for (let i = 0; i < NCX * NCZ; i++) dirty.add(i);
+  while (dirty.size) { const k = dirty.values().next().value; dirty.delete(k); buildChunk(k % NCX, Math.floor(k / NCX)); }
+  if (save.p) { [P.x, P.y, P.z, P.yaw, P.pitch] = save.p; P.fly = !!save.fly; }
+  else { const s = spawnPoint(); P.x = s[0]; P.y = s[1]; P.z = s[2]; P.yaw = Math.PI * .25; P.pitch = -.15; P.fly = false; }
+  if (typeof save.time === 'number') dayT = save.time;
+  if (typeof save.slot === 'number') slot = save.slot;
+  P.vx = P.vy = P.vz = 0;
+  document.getElementById('flyBtn').classList.toggle('on', P.fly);
+  buildHotbar();
+}
+
+function boot() {
+  if (!window.THREE) {
+    card.innerHTML = `<h2>불러오지 못했어요</h2><p class="err">3D 엔진(three.js)을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.</p>`;
+    return;
+  }
+  try { initThree(); } catch (e) {
+    card.innerHTML = `<h2>3D를 켤 수 없어요</h2><p class="err">이 기기나 브라우저에서 WebGL을 쓸 수 없어요. 다른 브라우저에서 열어 보세요.</p>`;
+    return;
+  }
+  if (touch) { document.getElementById('joy').hidden = false; document.getElementById('tbtns').hidden = false; }
+  const saved = loadSave();
+  save = saved && typeof saved.seed === 'number' ? saved : { seed: (Math.random() * 1e9) | 0, edits: {} };
+  if (!save.edits) save.edits = {};
+  startWorld();
+  showStart(!saved);
+  requestAnimationFrame(frame);
+}
+boot();
+</script>
+</body>
+</html>
