@@ -234,8 +234,8 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 // =============== map: supply depot with A and B sites and a two-storey middle building ===============
 // Blue holds the west (A site north-west, B site south-west); Red attacks from the east by three routes:
 // the indoor corridor building (north, to A), the middle building with its second floor, and the long outdoor alley (south, to B).
-// Two maps: 'supply' (the original supply depot) and 'depot' (the logistics depot from map-proto/,
-// built from the same MAP_CONFIG data). The map is chosen on the main menu and the page reloads with it,
+// Two maps: 'supply' (the original supply depot) and 'depot' (the logistics depot, described by the DEPOT
+// data below). The map is chosen on the main menu and the page reloads with it,
 // because the map size, second-floor height and navigation grid are fixed when the page loads.
 const MAP_ID = (() => {
   const h = /map=(\w+)/.exec(location.hash);            // the hash wins, so the choice also works where storage is blocked
