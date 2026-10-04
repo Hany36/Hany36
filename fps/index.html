@@ -130,10 +130,50 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
 .result { font: 700 42px/1 var(--font-num); }
 .result .b { color: var(--blue); } .result .r { color: var(--red); }
 .err { color: #ffb4a8; }
-@media (max-height: 520px) { .card details { display: none; } }
+/* match end: slow motion banner and color grade */
+.endban { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: grid; place-items: center; align-content: center; gap: 6px; }
+.endban::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 150px; margin-top: -84px; background: linear-gradient(90deg, transparent, rgba(8,10,8,.78) 18%, rgba(8,10,8,.78) 82%, transparent); transform: scaleX(0); animation: banBar .5s .05s cubic-bezier(.2,.8,.2,1) forwards; }
+.endban b { position: relative; font: 700 clamp(64px, 15vw, 132px)/1 var(--font-body); letter-spacing: .08em; opacity: 0; animation: banIn .7s .15s cubic-bezier(.15,1.4,.35,1) forwards; }
+.endban span { position: relative; font: 700 clamp(14px, 2.6vw, 22px) var(--font-num); letter-spacing: .6em; padding-left: .6em; color: var(--ink); opacity: 0; animation: banSub .6s .55s ease-out forwards; }
+.endban.win b { color: var(--amber); text-shadow: 0 0 28px rgba(242,177,58,.75), 0 4px 0 #6d4704; }
+.endban.lose b { color: var(--red); text-shadow: 0 0 28px rgba(239,90,79,.6), 0 4px 0 #5a1611; }
+.endban.draw b { color: var(--ink); text-shadow: 0 0 24px rgba(255,255,255,.4), 0 4px 0 #333; }
+@keyframes banIn { 0% { opacity: 0; transform: scale(2.6); filter: blur(10px); } 60% { opacity: 1; filter: blur(0); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes banSub { from { opacity: 0; letter-spacing: 1.4em; } to { opacity: .9; letter-spacing: .6em; } }
+@keyframes banBar { to { transform: scaleX(1); } }
+#view { transition: filter 1.4s ease-out; }
+body.end-win #view { filter: saturate(1.3) sepia(.22) brightness(1.06) contrast(1.05); }
+body.end-lose #view { filter: grayscale(.85) brightness(.82) contrast(1.1); }
+body.end-draw #view { filter: saturate(.6) brightness(.95); }
+body.ending .hud > :not(.score) { opacity: 0 !important; }
+.card > * { flex-shrink: 0; }
+.card.wide { max-width: 760px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.stats div { padding: 8px 4px; border-radius: 8px; background: #1d211b; border: 1px solid var(--line); }
+.stats b { display: block; font: 700 22px/1.1 var(--font-num); }
+.stats small { font-size: 11.5px; color: var(--muted); }
+.card .board { position: static; transform: none; width: 100%; padding: 0; background: none; text-align: left; }
+.mvp { color: var(--amber); font-weight: 700; }
+/* loadout screen */
+.lo-sec { text-align: left; display: flex; flex-direction: column; gap: 6px; }
+.lo-sec h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .08em; }
+.lo-grid { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 6px; }
+.lo { position: relative; padding: 8px 9px 9px; border-radius: 10px; border: 1px solid var(--line); background: #1b1f19; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+.lo[aria-pressed="true"] { border-color: var(--amber); background: #2c2817; box-shadow: inset 0 0 0 1px var(--amber); }
+.lo .k { position: absolute; right: 8px; top: 6px; font: 700 11px var(--font-num); color: var(--muted); }
+.lo b { font-size: 15px; }
+.lo .d { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.lo svg { width: 100%; height: 34px; }
+.lo .bars { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-size: 10.5px; color: var(--muted); }
+.lo .bars i { display: block; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+.lo .bars i::after { content: ""; display: block; height: 100%; width: var(--v); background: var(--amber); }
+.lo-note { font-size: 12px; color: var(--muted); }
+@media (max-width: 620px) { .lo-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-height: 520px) { .card details { display: none; } .lo .d, .lo svg { display: none; } }
 @media (max-height: 720px) {
   .overlay { padding: 8px; }
-  .card > p { display: none; }
+  .card > p:not(.keep) { display: none; }
+  .lo .bars { display: none; }
   .card { gap: 8px; padding-block: 12px; }
   .card h1 { font-size: 24px; } .card h1 small { margin-top: 2px; }
   .set { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; row-gap: 6px; }
@@ -182,6 +222,7 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
   <button class="tb menu" id="tMenu" type="button">II</button>
 </div>
 
+<div class="endban" id="endBan" hidden><b id="endBig"></b><span id="endSub"></span></div>
 <div class="overlay" id="overlay"><div class="card" id="card"><p>불러오는 중…</p></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -436,10 +477,30 @@ function lineClear(a, b) {
 const WEAPONS = {
   rifle:  { n: '소총', mag: 30, res: 120, rate: .095, auto: true, dmg: 28, head: 3.6, spread: .012, aimSpread: .003, kick: .011, reload: 2.1, range: 120, fov: 52, snd: 1, adsY: -.112, adsZ: -.31 },
   pistol: { n: '권총', mag: 12, res: 48, rate: .16, auto: false, dmg: 34, head: 3, spread: .016, aimSpread: .005, kick: .02, reload: 1.5, range: 80, fov: 62, snd: .7, adsY: -.07, adsZ: -.3 },
-  sniper: { n: '저격총', mag: 5, res: 20, rate: 1.25, auto: false, dmg: 110, head: 2, spread: .09, aimSpread: 0, kick: .05, reload: 2.8, range: 200, fov: 16, scope: true, snd: 1.6 },
+  sniper: { mob: .92, n: '저격총', mag: 5, res: 20, rate: 1.25, auto: false, dmg: 110, head: 2, spread: .09, aimSpread: 0, kick: .05, reload: 2.8, range: 200, fov: 16, scope: true, snd: 1.6 },
+  smg:    { mob: 1.08, moveK: .5, n: '기관단총', mag: 32, res: 160, rate: .066, auto: true, dmg: 19, head: 3, spread: .016, aimSpread: .006, kick: .006, reload: 1.7, range: 70, fov: 60, snd: .75, adsY: -.073, adsZ: -.3 },
+  shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 15, pellets: 9, falloff: true, head: 1.6, spread: .055, aimSpread: .042, kick: .045, reload: 2.6, range: 32, fov: 64, snd: 1.4, adsY: -.07, adsZ: -.34 },
+  revolver: { n: '리볼버', mag: 6, res: 30, rate: .42, auto: false, dmg: 52, head: 2.6, spread: .012, aimSpread: .003, kick: .055, reload: 2.2, range: 90, fov: 60, snd: 1.15, adsY: -.072, adsZ: -.3 },
   knife:  { n: '칼', melee: true, rate: .45, dmg: 55, range: 1.9 },
 };
 const NADE = { n: '수류탄', dmg: 130, radius: 6.5, fuse: 2.2 };
+// loadout screen entries: [key, name, description]
+const LOADOUT = {
+  primary: [
+    ['rifle', '돌격소총', '레드닷 조준경, 연사. 어느 거리에서나 무난해요.'],
+    ['smg', '기관단총', '아주 빠른 연사, 빠른 이동. 가까운 실내전에 강해요.'],
+    ['shotgun', '산탄총', '한 발에 산탄 9개. 가까우면 한 방, 멀면 약해요.'],
+    ['sniper', '저격총', '스코프, 몸통 한 방. 연사와 이동이 느려요.'],
+  ],
+  secondary: [
+    ['pistol', '권총', '빠른 반자동 12발.'],
+    ['revolver', '리볼버', '6발. 느리지만 한 발이 강해요.'],
+  ],
+  equip: [
+    ['nades', '수류탄 2개', '수류탄 2개를 들고 시작해요.'],
+    ['armor', '방탄조끼', '받는 피해 30% 감소. 수류탄 없이 시작해요.'],
+  ],
+};
 
 // =============== settings and state ===============
 const DIFF = {
@@ -450,12 +511,12 @@ const DIFF = {
 const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈', '코브라', '하이에나', '독사', '까마귀'] };
 const GOAL = 40, MATCH_TIME = 300, RESPAWN = 3;
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { secondary: 'pistol', equip: 'nades', diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
 const G = { state: 'menu', time: 0, score: { blue: 0, red: 0 }, actors: [], nades: [], countdown: 0 };
-let loadoutPrimary = 'rifle';   // chosen at spawn; changing the setting mid-life applies at the next respawn
-const slots = () => [loadoutPrimary, 'pistol', 'knife'];
+let loadoutPrimary = 'rifle', loadoutSecondary = 'pistol', loadoutEquip = 'nades';   // fixed at spawn; changes apply at the next respawn
+const slots = () => [loadoutPrimary, loadoutSecondary, 'knife'];
 
 // =============== procedural textures ===============
 function hash3(x, y, s) {
@@ -866,6 +927,30 @@ function buildViewModels() {
   knife.add(meshAt(new THREE.BoxGeometry(.028, .035, .12), MAT.polymer), meshAt(new THREE.BoxGeometry(.01, .04, .22), MAT.blade, 0, .004, -.17));
   knife.rotation.x = .4;
   models.knife = arms(knife, [0, 0, .02]);
+  // SMG: short receiver, stubby barrel, iron sights
+  const smg = new THREE.Group();
+  smg.add(meshAt(new THREE.BoxGeometry(.05, .075, .26), MAT.gun, 0, 0, 0), meshAt(new THREE.BoxGeometry(.055, .06, .12), MAT.polymer, 0, -.005, -.18));
+  const smgB = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, .12, 10), MAT.gun); smgB.rotation.x = Math.PI / 2; smgB.position.set(0, .005, -.29); smg.add(smgB);
+  smg.add(meshAt(new THREE.BoxGeometry(.035, .2, .045), MAT.gun2, 0, -.13, -.02));
+  const smgG = meshAt(new THREE.BoxGeometry(.038, .1, .045), MAT.polymer, 0, -.08, .08); smgG.rotation.x = -.3; smg.add(smgG);
+  smg.add(meshAt(new THREE.BoxGeometry(.012, .012, .2), MAT.gun2, 0, -.01, .22));
+  smg.add(meshAt(new THREE.BoxGeometry(.026, .014, .012), MAT.gun, 0, .044, .1), meshAt(new THREE.BoxGeometry(.005, .02, .01), MAT.gun, 0, .047, -.2));
+  models.smg = arms(smg, [0, -.08, .08], [0, -.04, -.18]);
+  // shotgun: barrel over a magazine tube, wooden pump and stock, bead sight
+  const sg = new THREE.Group();
+  sg.add(meshAt(new THREE.BoxGeometry(.055, .08, .3), MAT.gun, 0, 0, 0));
+  const sgB = new THREE.Mesh(new THREE.CylinderGeometry(.018, .018, .48, 12), MAT.gun); sgB.rotation.x = Math.PI / 2; sgB.position.set(0, .02, -.38); sg.add(sgB);
+  const sgT = new THREE.Mesh(new THREE.CylinderGeometry(.014, .014, .4, 10), MAT.gun2); sgT.rotation.x = Math.PI / 2; sgT.position.set(0, -.015, -.34); sg.add(sgT);
+  sg.add(meshAt(new THREE.BoxGeometry(.06, .05, .16), MAT.wood, 0, -.02, -.3), meshAt(new THREE.BoxGeometry(.05, .1, .26), MAT.wood, 0, -.03, .26));
+  sg.add(meshAt(new THREE.SphereGeometry(.007, 8, 6), MAT.blade, 0, .043, -.6));
+  models.shotgun = arms(sg, [0, -.08, .1], [0, -.06, -.3]);
+  // revolver: cylinder and long barrel
+  const rv = new THREE.Group();
+  const rvC = new THREE.Mesh(new THREE.CylinderGeometry(.026, .026, .05, 12), MAT.gun2); rvC.rotation.x = Math.PI / 2; rvC.position.set(0, .015, -.01); rv.add(rvC);
+  const rvB = new THREE.Mesh(new THREE.CylinderGeometry(.011, .011, .17, 10), MAT.gun2); rvB.rotation.x = Math.PI / 2; rvB.position.set(0, .03, -.12); rv.add(rvB);
+  rv.add(meshAt(new THREE.BoxGeometry(.03, .04, .08), MAT.gun2, 0, .02, .04), meshAt(new THREE.BoxGeometry(.004, .014, .01), MAT.gun, 0, .047, -.2), meshAt(new THREE.BoxGeometry(.018, .01, .01), MAT.gun, 0, .045, .07));
+  const rvG = meshAt(new THREE.BoxGeometry(.03, .1, .045), MAT.wood, 0, -.05, .07); rvG.rotation.x = -.35; rv.add(rvG);
+  models.revolver = arms(rv, [0, -.07, .07], [-.02, -.08, .05]);
   for (const k in models) { models[k].visible = false; root.add(models[k]); }
   const flashC = document.createElement('canvas'); flashC.width = flashC.height = 64;
   const fg = flashC.getContext('2d'), grd = fg.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -974,6 +1059,20 @@ function sfx(kind, vol = 1) {
     const o = AC.createOscillator(); o.frequency.setValueAtTime(kind === 'boom' ? 70 : 140, t); o.frequency.exponentialRampToValueAtTime(40, t + dur);
     const og = AC.createGain(); og.gain.setValueAtTime(vol * .5, t); og.gain.exponentialRampToValueAtTime(.001, t + dur);
     o.connect(og); og.connect(AC.destination); o.start(t); o.stop(t + dur);
+  } else if (kind === 'win' || kind === 'lose' || kind === 'draw') {
+    // match-end sting: a low hit, then a rising major or falling minor chord
+    const notes = kind === 'win' ? [261.6, 329.6, 392, 523.3, 659.3] : kind === 'lose' ? [392, 311.1, 261.6, 196] : [293.7, 370, 440];
+    const hit = AC.createOscillator(); hit.frequency.setValueAtTime(110, t); hit.frequency.exponentialRampToValueAtTime(35, t + .9);
+    const hg = AC.createGain(); hg.gain.setValueAtTime(vol * .7, t); hg.gain.exponentialRampToValueAtTime(.001, t + .9);
+    hit.connect(hg); hg.connect(AC.destination); hit.start(t); hit.stop(t + .9);
+    notes.forEach((fq, i) => {
+      const st = t + .12 + i * (kind === 'win' ? .11 : .2);
+      for (const det of [0, 7]) {
+        const o = AC.createOscillator(); o.type = det ? 'sawtooth' : 'triangle'; o.frequency.value = fq; o.detune.value = det;
+        const g = AC.createGain(); g.gain.setValueAtTime(.0001, st); g.gain.exponentialRampToValueAtTime(vol * (det ? .035 : .12), st + .04); g.gain.exponentialRampToValueAtTime(.0001, st + 2.2);
+        o.connect(g); g.connect(AC.destination); o.start(st); o.stop(st + 2.3);
+      }
+    });
   } else {
     const o = AC.createOscillator(); o.type = kind === 'hs' ? 'triangle' : 'square';
     o.frequency.value = kind === 'hs' ? 1500 : kind === 'hit' ? 900 : kind === 'empty' ? 300 : kind === 'pick' ? 700 : 500;
@@ -987,7 +1086,7 @@ function sfx(kind, vol = 1) {
 const HEAD_R = .16;
 function newActor(team, name, isMe) {
   const a = { team, name, isMe, hp: 100, dead: true, respawn: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0,
-    crouch: false, ground: true, kills: 0, deaths: 0, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
+    crouch: false, ground: true, kills: 0, deaths: 0, stats: { shots: 0, hits: 0, hs: 0 }, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
   if (!isMe) {
     a.mesh = soldier(team); scene.add(a.mesh);
     if (team === 'blue') a.mesh.add(allyMarker());
@@ -1017,18 +1116,19 @@ function spawnActor(a) {
 }
 function damage(victim, amount, attacker, weapon, head, from) {
   if (victim.dead || victim.protect > 0) return false;
+  if (victim.isMe && loadoutEquip === 'armor') amount *= .7;
   victim.hp -= amount;
   victim.lastHitBy = attacker;
   if (victim.isMe) hurtFlash(from);
   else if (attacker && victim.team !== attacker.team) { victim.ai.lastSeen = [attacker.x, attacker.z, layerOf(attacker.y)]; if (!victim.ai.target) victim.ai.look = Math.atan2(-(attacker.x - victim.x), -(attacker.z - victim.z)); }
   if (victim.hp > 0) return false;
   victim.hp = 0; victim.dead = true; victim.deaths++; victim.respawn = RESPAWN;
-  if (attacker && attacker !== victim) { attacker.kills++; G.score[attacker.team]++; }
+  if (attacker && attacker !== victim && G.state === 'play') { attacker.kills++; G.score[attacker.team]++; }
   pushFeed(attacker || victim, victim, weapon, head);
   dropPickup(victim);
   if (!victim.isMe) victim.ai.deathT = 0;
   else { showCenter('사망', `${attacker && attacker !== victim ? attacker.name + '에게 당했어요' : '자폭했어요'} · ${RESPAWN}초 후 부활`); setAim(false); }
-  if (G.score.blue >= GOAL || G.score.red >= GOAL) endMatch();
+  if ((G.score.blue >= GOAL || G.score.red >= GOAL) && G.state === 'play') endMatch();
   return true;
 }
 
@@ -1042,9 +1142,11 @@ function setAim(v) {
   $('tAim').classList.toggle('on', aiming);
 }
 function resetLoadout() {
-  for (const k of ['rifle', 'pistol', 'sniper', 'knife']) { const w = WEAPONS[k]; ammo[k] = w.melee ? { mag: 0, res: 0 } : { mag: w.mag, res: w.res }; }
-  loadoutPrimary = settings.primary; leanToggle = 0; touchLean = 0;
-  nades = 2; reloadT = 0; fireCd = 0; prevWeapon = 'pistol'; crouchToggle = false; selectWeapon(loadoutPrimary, true);
+  for (const k in WEAPONS) { const w = WEAPONS[k]; ammo[k] = w.melee ? { mag: 0, res: 0 } : { mag: w.mag, res: w.res }; }
+  if (!WEAPONS[settings.primary]) settings.primary = 'rifle';
+  if (!WEAPONS[settings.secondary]) settings.secondary = 'pistol';
+  loadoutPrimary = settings.primary; loadoutSecondary = settings.secondary; loadoutEquip = settings.equip; leanToggle = 0; touchLean = 0;
+  nades = loadoutEquip === 'armor' ? 0 : 2; reloadT = 0; fireCd = 0; prevWeapon = loadoutSecondary; crouchToggle = false; selectWeapon(loadoutPrimary, true);
 }
 function selectWeapon(k, instant) {
   if (k === weapon && !instant) return;
@@ -1106,7 +1208,7 @@ function updatePlayer(dt) {
   const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : (keys.ControlLeft || keys.KeyC || touchCrouch);
   if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
-  const spd = (me.crouch ? 2.4 : aiming ? 3.2 : (keys.ShiftLeft ? 3 : 5.4)) * (weapon === 'knife' ? 1.15 : weapon === 'sniper' ? .92 : 1);
+  const spd = (me.crouch ? 2.4 : aiming ? 3.2 : (keys.ShiftLeft ? 3 : 5.4)) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const tvx = (-sy * fz + cy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1), tvz = (-cy * fz - sy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1);
   const k = Math.min(1, dt * (me.ground ? 12 : 3));
@@ -1148,7 +1250,7 @@ function aimDir(spread) {
 function currentSpread() {
   const w = WEAPONS[weapon]; if (w.melee) return 0;
   const moving = Math.hypot(me.vx, me.vz) / 5.4;
-  let s = (aiming ? w.aimSpread : w.spread) + spreadBoost + moving * (aiming ? .01 : .03);
+  let s = (aiming ? w.aimSpread : w.spread) + spreadBoost + moving * (aiming ? .01 : .03) * (w.moveK || 1);
   if (!me.ground) s += .05;
   if (me.crouch) s *= .7;
   return s;
@@ -1158,25 +1260,27 @@ function shoot() {
   fireCd = w.rate;
   const o = eyePos(me);
   if (w.melee) {
-    vm.knifeT = .25;
+    vm.knifeT = .25; me.stats.shots++;
     const hit = traceActors(o, aimDir(0), w.range, me);
     if (hit) {
       const back = Math.cos(hit.a.yaw - me.yaw) > .6;
       const killed = damage(hit.a, back ? 110 : w.dmg, me, w.n, false, me);
-      hitMarker(killed); sfx('hit', .8); burst(hit.p, [.6, 0, 0], 10, 2, .4);
+      me.stats.hits++; hitMarker(killed); sfx('hit', .8); burst(hit.p, [.6, 0, 0], 10, 2, .4);
     }
     return;
   }
   const a = ammo[weapon];
   if (a.mag <= 0) { sfx('empty', .6); fireCd = .25; if (a.res > 0) startReload(); return; }
   a.mag--;
-  fireRay(me, o, aimDir(currentSpread()), w);
+  me.stats.shots++; me.shotHit = false; me.shotHead = false;
+  for (let k = 0; k < (w.pellets || 1); k++) fireRay(me, o, aimDir(currentSpread()), w);
+  if (me.shotHit) me.stats.hits++;
   me.pitch = Math.min(1.5, me.pitch + w.kick * (aiming ? .6 : 1));
   me.yaw += (Math.random() - .5) * w.kick * .5;
   spreadBoost = Math.min(.06, spreadBoost + w.kick * .4);
   recoilP = Math.min(.15, recoilP + w.kick * 2);
   vm.kick = 1; vm.flash.visible = !(aiming && w.scope); vm.flashT = .04;
-  sfx(weapon === 'sniper' ? 'snipe' : 'shot', w.snd);
+  sfx(weapon === 'sniper' || weapon === 'shotgun' ? 'snipe' : 'shot', w.snd);
   if (weapon === 'sniper') { vm.boltT = .9; if (settings.aimMode === 'toggle') setAim(false); }
   if (a.mag === 0 && a.res > 0) setTimeout(() => { if (!me.dead && weapon !== 'knife') startReload(); }, 250);
 }
@@ -1201,11 +1305,13 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
   const gunPos = shooter.isMe
     ? [o[0] - Math.sin(me.yaw) * .5 + Math.cos(me.yaw) * .14, o[1] - .12, o[2] - Math.cos(me.yaw) * .5 - Math.sin(me.yaw) * .14]
     : muzzleOf(shooter);
-  if (Math.random() < (shooter.isMe ? .45 : .35)) tracer(gunPos, end, shooter.isMe ? 0xffe2a0 : 0xffc070);
+  if (Math.random() < (shooter.isMe ? (w.pellets ? .25 : .45) : .35)) tracer(gunPos, end, shooter.isMe ? 0xffe2a0 : 0xffc070);
   if (ah) {
-    const killed = damage(ah.a, w.dmg * (ah.head ? w.head : 1) * dmgMul, shooter, w.n, ah.head, shooter);
+    const fall = w.falloff ? Math.max(.25, 1 - Math.hypot(ah.p[0] - o[0], ah.p[2] - o[2]) / w.range) : 1;
+    const killed = damage(ah.a, w.dmg * (ah.head ? w.head : 1) * dmgMul * fall, shooter, w.n, ah.head, shooter);
+    if (shooter.isMe) { me.shotHit = true; if (ah.head && !me.shotHead) me.stats.hs++; me.shotHead = ah.head || me.shotHead; }
     burst(ah.p, [.42, .02, .02], ah.head ? 16 : 8, 2.2, .4);
-    if (shooter.isMe) { hitMarker(killed); sfx(ah.head ? 'hs' : 'hit', .7); }
+    if (shooter.isMe) { hitMarker(killed); if (!w.pellets || Math.random() < .3) sfx(ah.head ? 'hs' : 'hit', .7); }
   } else if (mh) {
     decal(end, mh.n);
     burst(end, [.75, .7, .6], 5, 3, .3);
@@ -1253,7 +1359,9 @@ function updateNades(dt) {
 }
 
 // =============== scavenger: dead soldiers drop their gun and ammo ===============
-const PICKUPS = [], PICK_LIFE = 30, MAX_RES = { rifle: 180, sniper: 30, pistol: 72 };
+const FLASH_Z = { pistol: -.16, revolver: -.24, sniper: -.85, rifle: -.72, smg: -.36, shotgun: -.64 };
+const PICKUPS = [], PICK_LIFE = 30, MAX_RES = { rifle: 180, sniper: 30, pistol: 72, smg: 192, shotgun: 35, revolver: 36 };
+const PICK_GAIN = { rifle: 60, sniper: 10, pistol: 24, smg: 64, shotgun: 14, revolver: 12 };
 function dropPickup(a) {
   if (PICKUPS.length >= 14) removePickup(0);
   const g = new THREE.Group();
@@ -1274,8 +1382,8 @@ function updatePickups(dt) {
     if (me.dead || Math.hypot(me.x - p.x, me.z - p.z) > 1.3 || Math.abs(me.y - p.y) > 1) continue;
     const got = [];
     const add = (k, n) => { const before = ammo[k].res; ammo[k].res = Math.min(MAX_RES[k], before + n); if (ammo[k].res > before) got.push(`${WEAPONS[k].n} +${ammo[k].res - before}`); };
-    add(loadoutPrimary, loadoutPrimary === 'sniper' ? 10 : 60);
-    add('pistol', 24);
+    add(loadoutPrimary, PICK_GAIN[loadoutPrimary]);
+    add(loadoutSecondary, PICK_GAIN[loadoutSecondary]);
     if (nades < 3) { nades++; got.push('수류탄 +1'); }
     if (!got.length) continue;        // already full: leave it for later
     removePickup(i);
@@ -1475,16 +1583,17 @@ function hud(dt) {
   for (const f of feed) f.t -= dt;
   if (feed.length && feed[feed.length - 1].t <= 0) { feed.pop(); renderFeed(); }
   drawRadar();
-  $('board').hidden = !(keys.Tab || G.state === 'over');
+  $('board').hidden = !(keys.Tab && G.state !== 'over');
   if (!$('board').hidden) renderBoard();
 }
-function renderBoard() {
+function boardHtml() {
   const team = t => G.actors.filter(a => a.team === t).sort((x, y) => y.kills - x.kills)
     .map(a => `<tr class="${a.isMe ? 'meRow' : ''}"><td>${a.name}</td><td>${a.kills}</td><td>${a.deaths}</td></tr>`).join('');
-  $('board').innerHTML = `
+  return `
     <div><h3 style="color:var(--blue)">블루 ${G.score.blue}</h3><table><tr><td></td><td>킬</td><td>데스</td></tr>${team('blue')}</table></div>
     <div><h3 style="color:var(--red)">레드 ${G.score.red}</h3><table><tr><td></td><td>킬</td><td>데스</td></tr>${team('red')}</table></div>`;
 }
+function renderBoard() { $('board').innerHTML = boardHtml(); }
 
 // =============== input ===============
 let locked = false, lockFallback = false;
@@ -1500,6 +1609,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Digit2') selectWeapon(sl[1]);
   if (e.code === 'Digit3') selectWeapon(sl[2]);
   if (e.code === 'KeyX') selectWeapon(prevWeapon);
+  if (e.code === 'KeyB') { pauseGame(); if (G.state === 'pause') showLoadout(true); return; }
   if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
   if ((e.code === 'KeyC' || e.code === 'ControlLeft') && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle;
@@ -1604,8 +1714,6 @@ function segHtml(key, opts) {
 function settingsHtml(inMatch) {
   return `
     <div class="set">
-      <span class="lab">주무기${inMatch ? ' (다음 부활부터 적용)' : ''}</span>
-      ${segHtml('primary', [['rifle', '소총 (연사)'], ['sniper', '저격총 (스코프)']])}
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
       <span class="lab">조준 방식</span>
       ${segHtml('aimMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
@@ -1640,7 +1748,8 @@ function controlsHtml() {
       <dt>왼쪽 클릭</dt><dd>발사</dd>
       <dt>오른쪽 클릭</dt><dd>정조준 (소총 레드닷, 저격총 스코프)</dd>
       <dt>R</dt><dd>재장전</dd>
-      <dt>1 2 3 · X · 휠</dt><dd>주무기, 권총, 칼 · 이전 무기</dd>
+      <dt>1 2 3 · X · 휠</dt><dd>주무기, 보조무기, 칼 · 이전 무기</dd>
+      <dt>B</dt><dd>무기 고르기 (다음 부활부터 적용)</dd>
       <dt>Q · E</dt><dd>왼쪽 · 오른쪽으로 기울이기</dd>
       <dt>G</dt><dd>수류탄</dd>
       <dt>Space · Ctrl/C</dt><dd>점프 · 앉기</dd>
@@ -1660,7 +1769,7 @@ function setupMatch() {
   $('centerMsg').hidden = true;
 }
 function startMatch() {
-  audioInit();
+  audioInit(); loadoutOpen = false; clearEnding();
   setupMatch();
   G.state = 'count'; G.countdown = 3;
   $('overlay').hidden = true; $('hud').hidden = false; $('touch').hidden = !touch;
@@ -1672,35 +1781,117 @@ function pauseGame() {
   triggerHeld = false; for (const k in keys) keys[k] = false;
   if (settings.aimMode === 'hold') setAim(false);
   if (document.pointerLockElement) document.exitPointerLock();
+  showPause();
+}
+function showPause() {
+  loadoutOpen = false; $('card').className = 'card';
   $('card').innerHTML = `
     <h2>일시정지</h2>
     <p>블루 ${G.score.blue} : ${G.score.red} 레드 · 먼저 ${GOAL}킬을 내는 팀이 이겨요</p>
     ${settingsHtml(true)}
     ${controlsHtml()}
     <button class="btn" type="button" data-act="resume">계속하기</button>
+    <button class="btn ghost" type="button" data-act="loadout">무기 변경 (B)</button>
     <button class="btn ghost" type="button" data-act="menu">메인 메뉴로</button>`;
   bindSliders();
   $('overlay').hidden = false;
 }
-function resumeGame() { $('overlay').hidden = true; G.state = G.resume || 'play'; audioInit(); requestLock(); }
+function resumeGame() { loadoutOpen = false; $('overlay').hidden = true; G.state = G.resume || 'play'; audioInit(); requestLock(); }
+// match end: ~3 seconds of slow motion while the camera rises and the banner lands, then the results
+const END_SLOW = .2, END_TIME = 3.4;
 function endMatch() {
-  if (G.state === 'over') return;
-  G.state = 'over'; triggerHeld = false; setAim(false);
-  if (document.pointerLockElement) document.exitPointerLock();
-  const win = G.score.blue > G.score.red ? '승리' : G.score.blue < G.score.red ? '패배' : '무승부';
-  const mvp = G.actors.slice().sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)[0];
-  setTimeout(() => {
-    $('card').innerHTML = `
-      <h2>${win}</h2>
-      <div class="result"><span class="b">${G.score.blue}</span> : <span class="r">${G.score.red}</span></div>
-      <p>내 기록: ${me.kills}킬 ${me.deaths}데스 · MVP ${mvp.name} (${mvp.kills}킬)</p>
-      <button class="btn" type="button" data-act="start">다시 하기</button>
-      <button class="btn ghost" type="button" data-act="menu">메인 메뉴로</button>`;
-    $('overlay').hidden = false;
-  }, 1200);
+  if (G.state === 'ending' || G.state === 'over') return;
+  G.state = 'ending'; G.endT = 0;
+  G.result = G.score.blue > G.score.red ? 'win' : G.score.blue < G.score.red ? 'lose' : 'draw';
+  triggerHeld = false; setAim(false); for (const k in keys) keys[k] = false;
+  const [big, sub] = { win: ['승리', 'VICTORY'], lose: ['패배', 'DEFEAT'], draw: ['무승부', 'DRAW'] }[G.result];
+  $('endBig').textContent = big; $('endSub').textContent = sub;
+  const ban = $('endBan'); ban.className = `endban ${G.result}`; ban.hidden = false;
+  document.body.classList.add('ending', `end-${G.result}`);
+  $('centerMsg').hidden = true; $('board').hidden = true;
+  sfx(G.result, .9);
 }
+function showResults() {
+  G.state = 'over'; $('hud').hidden = true; $('touch').hidden = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  $('endBan').hidden = true; document.body.classList.remove('ending');
+  const title = { win: '승리', lose: '패배', draw: '무승부' }[G.result];
+  const mvp = G.actors.slice().sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)[0];
+  const st = me.stats, acc = st.shots ? Math.round(st.hits / st.shots * 100) : 0;
+  $('card').className = 'card wide';
+  $('card').innerHTML = `
+    <h2 style="color:${G.result === 'win' ? 'var(--amber)' : G.result === 'lose' ? 'var(--red)' : 'var(--ink)'}">${title}</h2>
+    <div class="result"><span class="b">${G.score.blue}</span> : <span class="r">${G.score.red}</span></div>
+    <p class="keep">MVP <span class="mvp">${mvp.name}</span> · ${mvp.kills}킬 ${mvp.deaths}데스</p>
+    <div class="stats">
+      <div><b>${me.kills}</b><small>킬</small></div><div><b>${me.deaths}</b><small>데스</small></div>
+      <div><b>${st.hs}</b><small>헤드샷</small></div><div><b>${acc}%</b><small>명중률</small></div>
+    </div>
+    <div class="board">${boardHtml()}</div>
+    <button class="btn" type="button" data-act="start">다시 하기</button>
+    <button class="btn ghost" type="button" data-act="menu">메인 메뉴로</button>`;
+  $('overlay').hidden = false;
+}
+function clearEnding() { $('endBan').hidden = true; document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); }
+// weapon silhouettes for the loadout cards (viewBox 0 0 120 34)
+const ICONS = {
+  rifle: 'M6 15h12l4-4h48v-3h6v3h30v4h8v3H82l-4 3h-6l-3 10h-8l2-10H54l-4 8h-7l2-8H30l-6 6H8z',
+  smg: 'M22 14h10l3-3h38v-2h5v2h18v4h6v3H76l-4 3h-4v12h-7V20H52l-3 7h-7l2-7H36l-4 4H24z',
+  shotgun: 'M4 16l18-3h18l2-2h76v4h-4v2h4v3H64v2H42l-6 3H26l-10 4H6z',
+  sniper: 'M2 16l20-4h20l2-2h12V6h24v4h-14v2h52v3h4v2H64l-4 3h-6l-3 9h-7l2-9H42l-4 3H22l-14 5H2z',
+  pistol: 'M36 12h46v4h4v4H62l-2 3h-4l-4 10h-9l3-13h-8z',
+  revolver: 'M30 13h18v-2h12v3h40v3H62v3l-4 3h-5l-4 10h-9l3-12h-6l-3-2h-4z',
+  nades: 'M52 12h10v-3h6v3h2a10 10 0 0 1 0 20H50a10 10 0 0 1 2-20z',
+  armor: 'M44 6h10l4 4h4l4-4h10v12l-3 2v12H47V20l-3-2z',
+};
+function statBars(k) {
+  const w = WEAPONS[k];
+  const v = [
+    ['피해', Math.min(1, w.dmg * (w.pellets || 1) / 135)],
+    ['연사', Math.min(1, .08 / w.rate)],
+    ['사거리', Math.min(1, w.range / 200)],
+    ['기동', Math.min(1, ((w.mob || 1) - .8) / .3)],
+  ];
+  return `<div class="bars">${v.map(([n, x]) => `<span>${n}</span><i style="--v:${Math.round(Math.max(.06, x) * 100)}%"></i>`).join('')}</div>`;
+}
+function loadoutHtml(inMatch) {
+  let num = 0;
+  const sec = (key, title) => `
+    <div class="lo-sec"><h3>${title}</h3><div class="lo-grid" style="--n:${LOADOUT[key].length}">
+      ${LOADOUT[key].map(([k, name, desc]) => `<button type="button" class="lo" data-lo="${key}" data-val="${k}" aria-pressed="${settings[key] === k}">
+        <span class="k">${++num}</span>
+        <svg viewBox="0 0 120 34" aria-hidden="true"><path d="${ICONS[k]}" fill="${settings[key] === k ? 'var(--amber)' : '#8b9086'}"/></svg>
+        <b>${name}</b><span class="d">${desc}</span>${WEAPONS[k] ? statBars(k) : ''}</button>`).join('')}
+    </div></div>`;
+  return `
+    <h2>무기 선택</h2>
+    ${inMatch ? '<p class="keep lo-note">바꾼 무기는 다음 부활부터 적용돼요.</p>' : ''}
+    ${sec('primary', '주무기')}
+    ${sec('secondary', '보조무기')}
+    ${sec('equip', '장비')}
+    <button class="btn" type="button" data-act="${inMatch ? 'resume' : 'ready'}">준비 완료</button>
+    <button class="btn ghost" type="button" data-act="${inMatch ? 'pause' : 'menu'}">뒤로</button>`;
+}
+let loadoutOpen = false, loadoutInMatch = false;
+function showLoadout(inMatch) {
+  loadoutOpen = true; loadoutInMatch = inMatch;
+  if (!inMatch) { G.state = 'menu'; clearEnding(); $('hud').hidden = true; $('touch').hidden = true; }
+  $('card').className = 'card wide';
+  $('card').innerHTML = loadoutHtml(inMatch);
+  $('overlay').hidden = false;
+}
+function pickLoadout(key, val) {
+  settings[key] = val; saveSettings();
+  const sc = $('card').scrollTop; $('card').innerHTML = loadoutHtml(loadoutInMatch); $('card').scrollTop = sc;
+}
+window.addEventListener('keydown', e => {
+  if (!loadoutOpen || $('overlay').hidden) return;
+  const n = +e.key; if (!(n >= 1 && n <= 8)) return;
+  const all = [...LOADOUT.primary.map(x => ['primary', x[0]]), ...LOADOUT.secondary.map(x => ['secondary', x[0]]), ...LOADOUT.equip.map(x => ['equip', x[0]])];
+  pickLoadout(...all[n - 1]);
+});
 function showMenu() {
-  G.state = 'menu';
+  G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
   $('card').innerHTML = `
     <h1>보급기지 작전<small>TEAM DEATHMATCH 5 VS 5</small></h1>
@@ -1722,8 +1913,14 @@ $('overlay').addEventListener('click', e => {
     if (s.dataset.set === 'leanMode') { leanToggle = 0; touchLean = 0; }
     return;
   }
+  const lo = e.target.closest('[data-lo]');
+  if (lo) { pickLoadout(lo.dataset.lo, lo.dataset.val); return; }
   const b = e.target.closest('[data-act]'); if (!b) return;
-  if (b.dataset.act === 'start') startMatch();
+  audioInit();
+  if (b.dataset.act === 'start') showLoadout(false);
+  if (b.dataset.act === 'ready') startMatch();
+  if (b.dataset.act === 'loadout') showLoadout(true);
+  if (b.dataset.act === 'pause') showPause();
   if (b.dataset.act === 'resume') resumeGame();
   if (b.dataset.act === 'menu') { if (document.pointerLockElement) document.exitPointerLock(); showMenu(); }
 });
@@ -1739,22 +1936,27 @@ function frame(ts) {
     if (G.countdown <= 0) { G.state = 'play'; $('centerMsg').hidden = true; }
   }
   if (G.state === 'play') step(dt);
-  else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe) updateBot(a, 0); }
+  else if (G.state === 'ending') {
+    G.endT += dt;
+    step(dt * (G.endT < .25 ? 1 - (1 - END_SLOW) * G.endT / .25 : END_SLOW));
+    if (G.endT >= END_TIME) showResults();
+  } else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe) updateBot(a, 0); }
   render(dt);
   requestAnimationFrame(frame);
 }
 function step(dt) {
   G.time += dt;
-  if (G.time >= MATCH_TIME) endMatch();
+  if (G.time >= MATCH_TIME && G.state === 'play') { G.time = MATCH_TIME; endMatch(); }
   for (const a of G.actors) {
     a.spotted = Math.max(0, a.spotted - dt);
     if (a.dead) {
       a.respawn -= dt;
-      if (a.respawn <= 0) { spawnActor(a); if (a.isMe) $('centerMsg').hidden = true; }
+      if (a.respawn <= 0 && G.state !== 'play') a.respawn = 0;
+      else if (a.respawn <= 0) { spawnActor(a); if (a.isMe) $('centerMsg').hidden = true; }
       else if (a.isMe) showCenter('사망', `${me.lastHitBy && me.lastHitBy !== me ? me.lastHitBy.name + '에게 당했어요 · ' : ''}${Math.ceil(a.respawn)}초 후 부활`);
     }
   }
-  updatePlayer(dt);
+  if (G.state === 'play') updatePlayer(dt);
   for (const a of G.actors) if (!a.isMe) updateBot(a, dt);
   updateNades(dt);
   updatePickups(dt);
@@ -1766,8 +1968,18 @@ function render(dt) {
     const [lx, lz] = dead ? [0, 0] : leanVec(me);
     camera.position.set(me.x + lx, me.y + (dead ? .4 : eyeH(me)) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
     camera.rotation.set(me.pitch + recoilP * .3, me.yaw, dead ? .6 : -(me.leanOff || 0) / LEAN_DIST * LEAN_ROLL);
+    // match end: the camera pulls back and rises over the player's spot, looking down
+    const endK = G.state === 'ending' || G.state === 'over' ? 1 - Math.pow(1 - Math.min(1, (G.endT || 0) / 3), 3) : 0;
+    if (endK > 0) {
+      const ry = me.yaw + endK * .5, o = [camera.position.x, camera.position.y, camera.position.z];
+      const d = [Math.sin(ry) * 3.5, 4, Math.cos(ry) * 3.5], len = Math.hypot(...d);
+      const hit = rayMap(o, d.map(v => v / len), len);
+      const k = endK * (hit ? Math.max(0, hit.t - .4) / len : 1);     // stop short of walls and ceilings
+      camera.position.set(o[0] + d[0] * k, o[1] + d[1] * k, o[2] + d[2] * k);
+      camera.rotation.set(me.pitch + (-.75 - me.pitch) * endK, ry, (dead ? .6 : 0) * (1 - endK), 'YXZ');
+    }
     const w = WEAPONS[weapon];
-    const targetFov = aiming && !w.melee ? w.fov : 75;
+    const targetFov = endK > 0 ? 70 : aiming && !w.melee ? w.fov : 75;
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14);
     camera.updateProjectionMatrix();
     vm.kick = Math.max(0, (vm.kick || 0) - dt * 10);
@@ -1778,7 +1990,7 @@ function render(dt) {
     const sw = switchT > 0 ? switchT / .35 : 0, rl = reloadT > 0 ? Math.sin(Math.min(1, 1 - reloadT / w.reload) * Math.PI) : 0;
     const mv = Math.min(1, Math.hypot(me.vx, me.vz) / 5);
     const bx = Math.cos(bob) * .012 * mv, by = Math.abs(Math.sin(bob)) * .012 * mv;
-    vm.root.visible = !dead && !(aiming && w.scope);
+    vm.root.visible = !dead && !(aiming && w.scope) && endK < .15;
     // aiming slides the weapon so its sight sits at the screen center
     const tx = ads ? 0 : .17 + bx, ty = ads ? w.adsY : -.19 - by, tz = ads ? w.adsZ : -.4;
     vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * Math.min(1, dt * 18);
@@ -1787,7 +1999,7 @@ function render(dt) {
     vm.root.position.set(vm.ax, vm.ay - sw * .3 - rl * .12, vm.az + vm.kick * (ads ? .02 : .05));
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
     vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - (vm.knifeT > 0 ? Math.sin(vm.knifeT / .25 * Math.PI) * .9 : 0), 0, rl * .3 + bolt * .2);
-    vm.flash.position.set(0, .01, weapon === 'pistol' ? -.16 : weapon === 'sniper' ? -.85 : -.72);
+    vm.flash.position.set(0, .01, FLASH_Z[weapon] || -.6);
     renderer.clear();
     renderer.render(scene, camera);
     renderer.clearDepth();
