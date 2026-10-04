@@ -129,6 +129,31 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
 .btn { height: 50px; border: 0; border-radius: 10px; background: var(--amber); color: #111; font: 700 20px var(--font-body); box-shadow: 0 4px 0 #8f5e05; }
 .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #8f5e05; }
 .btn.reroll { height: 34px; font-size: 13px; box-shadow: none; border: 1px solid var(--line); }
+.yard-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* map editor: tools on the left (on top on narrow screens), the top-down map fills the rest */
+.editor { position: fixed; inset: 0; z-index: 20; display: flex; background: #121512; }
+.editor[hidden] { display: none; }
+.ed-bar { width: 250px; flex: none; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--line); }
+.ed-bar h2 { margin: 0; font-size: 18px; color: var(--amber); }
+.ed-bar p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.ed-tools { display: grid; grid-template-columns: 1fr; gap: 4px; }
+.ed-tool { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 13px; text-align: left; }
+.ed-tool i { width: 16px; height: 16px; border-radius: 3px; flex: none; border: 1px solid rgba(255,255,255,.3); }
+.ed-tool small { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 11px; }
+.ed-tool[aria-pressed="true"] { border-color: var(--amber); background: rgba(242,177,58,.16); }
+.ed-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.ed-acts button { height: 32px; border-radius: 8px; border: 1px solid var(--line); background: #222720; font-size: 12.5px; font-weight: 700; }
+.ed-acts .save { grid-column: 1 / -1; order: -1; height: 42px; background: var(--amber); color: #111; border: 0; font-size: 15px; }
+.ed-status { font-size: 12.5px; line-height: 1.5; padding: 8px; border-radius: 8px; background: #1b201b; }
+.ed-status .bad { color: #ff9a8a; } .ed-status .good { color: var(--ok); }
+.ed-canvas { flex: 1; min-width: 0; min-height: 0; touch-action: none; cursor: crosshair; display: block; width: 100%; height: 100%; }
+.ed-main { flex: 1; min-width: 0; position: relative; }
+@media (max-width: 760px), (max-height: 520px) and (orientation: landscape) {
+  .ed-bar { width: 190px; padding: 8px; gap: 6px; }
+  .ed-bar p { display: none; }
+  .ed-tool { height: 28px; font-size: 12px; } .ed-tool small { display: none; }
+}
+@media (max-width: 520px) { .editor { flex-direction: column; } .ed-bar { width: auto; max-height: 42%; border-right: 0; border-bottom: 1px solid var(--line); } .ed-tools { grid-template-columns: 1fr 1fr; } }
 .btn.ghost { background: #2b3029; color: var(--ink); box-shadow: 0 4px 0 #0c0e0c; font-size: 15px; }
 .result { font: 700 42px/1 var(--font-num); }
 .result .b { color: var(--blue); } .result .r { color: var(--red); }
@@ -227,6 +252,7 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 </div>
 
 <div class="endban" id="endBan" hidden><b id="endBig"></b><span id="endSub"></span></div>
+<div class="editor" id="editor" hidden></div>
 <div class="overlay" id="overlay"><div class="card" id="card"><p>불러오는 중…</p></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -481,87 +507,158 @@ const DEPOT = {
   },
 };
 
-// ---- generated maze between the Blue spawn and the hall (mirrored to Red, so both sides stay identical)
-// A 5 x 12 grid of small yards (x -50..-22, z -26..44). A random spanning tree links them through doors at random
-// spots along each wall, a few extra doors add loops, some yards are filled in as buildings and some walls are
-// containers. Doors on the outer edge are fixed so the spawn exits, the short route, A, the hall and B always connect.
-const DEPOT_SEED = (() => { const m = /seed=(\d+)/.exec(location.hash); return m ? +m[1] : 1 + Math.floor(Math.random() * 99999); })();
-function buildDepotMaze(seed) {
+// ---- the yard between each spawn and the hall: an editable 1 m grid (x -50..-22, z -26..44, 28 x 70 cells),
+// mirrored to the Red side so both teams always get the same layout. Each cell is empty or holds one object:
+// wall, container, double container, crate, crate stack or low barrier. The layout comes from (in order)
+// a code in the URL (#yard=...), the player's saved layout (map editor), or a random layout from the seed.
+// Fixed doors in the yard's outer walls keep the spawn exits, the short route, A, the hall and B connected.
+const YARD = { x0: -50, z0: -26, w: 28, h: 70 };
+const Y = { EMPTY: 0, WALL: 1, CONT: 2, CONT2: 3, CRATE: 4, STACK: 5, BARRIER: 6 };
+const YARD_H = [0, 4.6, 2.6, 5.2, 1.2, 2.2, 1.1];
+const YARD_ROW = (YARD.h) / 12;                                   // fixed doors sit in the middle of these rows
+const yardRowMid = j => YARD.z0 + (j + .5) * YARD_ROW;
+// fixed doors on the yard edge: side 'w' (spawn side, x = -50) or 'e' (hall / B link side, x = -22), z range, name
+const YARD_DOORS = [
+  ['w', yardRowMid(0) - 1.6, yardRowMid(0) + 1.6, '뒷마당 (짧은 길 입구)'],
+  ['w', -13, -9, '스폰 북쪽 출구'], ['w', 9, 13, '스폰 남쪽 출구'],
+  ['w', yardRowMid(8) - 1.6, yardRowMid(8) + 1.6, '스폰 뒤 남쪽 1'], ['w', yardRowMid(10) - 1.6, yardRowMid(10) + 1.6, '스폰 뒤 남쪽 2'],
+  ['e', yardRowMid(0) - 1.6, yardRowMid(0) + 1.6, 'A 옆문 쪽'], ['e', -12.6, -9.4, '보행로 계단 쪽'], ['e', -2.4, 1, '중앙 건물 1층'],
+  ['e', yardRowMid(6) - 1.6, yardRowMid(6) + 1.6, '발코니 계단 쪽'], ['e', yardRowMid(7) - 1.6, yardRowMid(7) + 1.6, 'B 통로 1'],
+  ['e', yardRowMid(9) - 1.6, yardRowMid(9) + 1.6, 'B 통로 2'], ['e', yardRowMid(11) - 1.6, yardRowMid(11) + 1.6, 'B 통로 3'],
+];
+// grid cells touched by a door (the first column inside the yard on that side)
+function yardDoorCells(d) {
+  const i = d[0] === 'w' ? 0 : YARD.w - 1, out = [];
+  for (let j = 0; j < YARD.h; j++) { const z = YARD.z0 + j + .5; if (z > d[1] + .2 && z < d[2] - .2) out.push([i, j]); }
+  return out;
+}
+// cells right in front of a door stay clear in random layouts
+function yardClearMask() {
+  const m = new Uint8Array(YARD.w * YARD.h);
+  for (const d of YARD_DOORS) for (const [i, j] of yardDoorCells(d)) for (let k = 0; k < 4; k++) for (const dj of [-1, 0, 1]) {
+    const ii = d[0] === 'w' ? i + k : i - k, jj = j + dj;
+    if (jj >= 0 && jj < YARD.h) m[jj * YARD.w + ii] = 1;
+  }
+  return m;
+}
+const yardBlocksWalk = c => c !== Y.EMPTY;
+const yardBlocksView = c => c === Y.WALL || c === Y.CONT || c === Y.CONT2 || c === Y.STACK;
+// which doors can reach the first door through empty cells (4-neighbour flood fill)
+function yardCheck(g) {
+  const seen = new Uint8Array(YARD.w * YARD.h), q = [];
+  const startCells = yardDoorCells(YARD_DOORS[1]).filter(([i, j]) => !yardBlocksWalk(g[j * YARD.w + i]));
+  for (const [i, j] of startCells) { seen[j * YARD.w + i] = 1; q.push(j * YARD.w + i); }
+  while (q.length) {
+    const k = q.pop(), i = k % YARD.w, j = (k / YARD.w) | 0;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= YARD.w || jj >= YARD.h) continue;
+      const kk = jj * YARD.w + ii; if (seen[kk] || yardBlocksWalk(g[kk])) continue; seen[kk] = 1; q.push(kk);
+    }
+  }
+  const blocked = YARD_DOORS.filter(d => !yardDoorCells(d).some(([i, j]) => seen[j * YARD.w + i])).map(d => d[3]);
+  // longest straight open line at eye height, along rows and columns (in meters)
+  let longest = 0;
+  for (let j = 0; j < YARD.h; j++) { let r = 0; for (let i = 0; i < YARD.w; i++) { r = yardBlocksView(g[j * YARD.w + i]) ? 0 : r + 1; longest = Math.max(longest, r); } }
+  for (let i = 0; i < YARD.w; i++) { let r = 0; for (let j = 0; j < YARD.h; j++) { r = yardBlocksView(g[j * YARD.w + i]) ? 0 : r + 1; longest = Math.max(longest, r); } }
+  return { blocked, longest };
+}
+// layout code: "Y1:" then runs of "<cell><count base36>." (short enough to paste or put in the URL)
+function yardEncode(g) {
+  let out = 'Y1:', k = 0;
+  while (k < g.length) { let n = 1; while (k + n < g.length && g[k + n] === g[k]) n++; out += g[k] + n.toString(36) + '.'; k += n; }
+  return out;
+}
+function yardDecode(str) {
+  if (!str || !str.startsWith('Y1:')) return null;
+  const g = new Uint8Array(YARD.w * YARD.h); let k = 0;
+  for (const tok of str.slice(3).split('.')) {
+    if (!tok) continue;
+    const c = +tok[0], n = parseInt(tok.slice(1), 36);
+    if (!(c >= 0 && c <= 6) || !(n > 0) || k + n > g.length) return null;
+    g.fill(c, k, k + n); k += n;
+  }
+  return k === g.length ? g : null;
+}
+// random layout: a few buildings and container rows with room to move between them, scattered cover,
+// then tall cover dropped into any straight line longer than about 20 m
+function yardRandom(seed) {
   let st = seed >>> 0;
   const rnd = () => { st = (st + 0x6D2B79F5) >>> 0; let t = st; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  const X0 = -50, X1 = -22, Z0 = -26, Z1 = 44, NI = 5, NJ = 12, CW = (X1 - X0) / NI, CH = (Z1 - Z0) / NJ, H = 4.6;
-  const cx = i => X0 + i * CW, cz = j => Z0 + j * CH;
-  const W = DEPOT.west.walls, B = DEPOT.west.boxes;
-  const WALLMATS = ['concrete', 'warehouse', 'block', 'hall', 'concrete', 'warehouse'];
-  const CONTS = ['contRust', 'contBlue', 'contGreen', 'contOchre', 'contGray'];
-  // doors sit at random spots, but never in line with the door of the previous wall on the same row/column,
-  // so no straight sightline runs through more than two yards
-  const lastDoor = new Map();
-  const door = (key, a0, a1, w = 2) => {
-    const prev = lastDoor.get(key), m = (a0 + a1) / 2;
-    // after a door near one end, the next door on the same line goes near the other end
-    const side = prev ? ((prev[0] + prev[1]) / 2 < m ? 1 : 0) : (rnd() < .5 ? 0 : 1);
-    const p = side === 0 ? a0 + .35 + rnd() * .6 : a1 - .35 - w - rnd() * .6;
-    lastDoor.set(key, [p, p + w]);
-    return [p, p + w, 0, H + 1];
-  };
-  // solid yards (never in the edge columns, which hold the fixed doors), then check that the rest stays connected
-  const solid = new Uint8Array(NI * NJ), id = (i, j) => j * NI + i;
-  for (let j = 0; j < NJ; j++) for (let i = 1; i < NI - 1; i++) if (rnd() < .14) solid[id(i, j)] = 1;
-  const edges = [];
-  for (let j = 0; j < NJ; j++) for (let i = 0; i < NI; i++) { if (i < NI - 1) edges.push([i, j, i + 1, j]); if (j < NJ - 1) edges.push([i, j, i, j + 1]); }
-  for (let k = edges.length - 1; k > 0; k--) { const r = Math.floor(rnd() * (k + 1)); [edges[k], edges[r]] = [edges[r], edges[k]]; }
-  const parent = Array.from({ length: NI * NJ }, (_, k) => k), find = k => (parent[k] === k ? k : (parent[k] = find(parent[k])));
-  const open = new Set();
-  for (const e of edges) {
-    const a = id(e[0], e[1]), b = id(e[2], e[3]);
-    if (solid[a] || solid[b]) continue;
-    if (find(a) !== find(b)) { parent[find(a)] = find(b); open.add(e.join()); }
-    else if (rnd() < .2) open.add(e.join());                    // extra loop
-  }
-  // un-solid any yard that would cut the maze apart (all open yards must share one root)
-  const roots = new Set(); for (let k = 0; k < NI * NJ; k++) if (!solid[k]) roots.add(find(k));
-  if (roots.size > 1) return buildDepotMaze(seed + 1);
-  // keep it playable: from each spawn exit, A/hall and B must be reachable within a few yards (else try the next seed)
-  const adj = k => { const i = k % NI, j = (k / NI) | 0, out = []; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const i2 = i + di, j2 = j + dj; if (i2 < 0 || j2 < 0 || i2 >= NI || j2 >= NJ) continue; const e = di + dj > 0 ? [i, j, i2, j2] : [i2, j2, i, j]; if (open.has(e.join())) out.push(id(i2, j2)); } return out; };
-  const steps = from => { const d = new Array(NI * NJ).fill(99); d[from] = 0; const q = [from]; while (q.length) { const k = q.shift(); for (const m of adj(k)) if (d[m] > d[k] + 1) { d[m] = d[k] + 1; q.push(m); } } return d; };
-  const dA = steps(id(0, 2)), dB = steps(id(0, 6)), best = cells => Math.min(...cells.map(c => Math.min(dA[c], dB[c])));
-  const far = best([id(4, 6), id(4, 7), id(4, 9)]) > 6 || best([id(4, 0), id(4, 2), id(4, 4)]) > 6;
-  if (far && seed < DEPOT_SEED + 200) return buildDepotMaze(seed + 1);
-  // outer edge: west (spawn side) and east (hall / B link side) with fixed doors per row
-  const mid = j => (cz(j) + cz(j + 1)) / 2, fixed = (j, w = 3.2) => [mid(j) - w / 2, mid(j) + w / 2, 0, H + 1];
-  W.push({ axis: 'x', at: X0, from: Z0, to: -16, h: H, mat: 'warehouse', open: [fixed(0)] });
-  W.push({ axis: 'x', at: X0, from: 16, to: Z1, h: H, mat: 'warehouse', open: [fixed(8), fixed(10)] });
-  W.push({ axis: 'x', at: X1, from: Z0, to: Z1, h: H, mat: 'concrete', t: .6,
-    open: [fixed(0), [-12.6, -9.4, 0, H + 1], [-2.4, 1, 0, H + 1], fixed(6), fixed(7), fixed(9), fixed(11)] });
-  // inner walls: one per edge between yards, with a door if open; a closed wall is sometimes a container stack
-  edges.sort((p2, q2) => (p2[1] - q2[1]) * 100 + (p2[0] - q2[0]) || (p2[2] - q2[2]));
-  for (const e of edges) {
-    const [i, j, i2, j2] = e, a = id(i, j), b = id(i2, j2), isOpen = open.has(e.join());
-    if (solid[a] && solid[b]) continue;
-    const vertical = i2 !== i;                                  // wall between columns runs along z
-    const at = vertical ? cx(i2) : cz(j2), from = vertical ? cz(j) : cx(i), to = vertical ? cz(j + 1) : cx(i + 1);
-    const mat = WALLMATS[Math.floor(rnd() * WALLMATS.length)];
-    if (!isOpen && !solid[a] && !solid[b] && rnd() < .28) {
-      const c = CONTS[Math.floor(rnd() * CONTS.length)], two = rnd() < .45;
-      const box = vertical ? { x: [at - 1.22, at + 1.22], z: [from + .05, to - .05] } : { x: [from + .05, to - .05], z: [at - 1.22, at + 1.22] };
-      B.push({ ...box, y: [0, 2.6], mat: c, kind: 'container' });
-      if (two) B.push({ ...box, y: [2.6, 5.2], mat: CONTS[Math.floor(rnd() * CONTS.length)], kind: 'container' });
-      continue;
+  const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  const clear = yardClearMask();
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const g = new Uint8Array(YARD.w * YARD.h);
+    const free = (x, z, w, h, pad) => {
+      for (let j = z - pad; j < z + h + pad; j++) for (let i = x - pad; i < x + w + pad; i++) {
+        if (i < 0 || j < 0 || i >= YARD.w || j >= YARD.h) { if (i >= x && i < x + w && j >= z && j < z + h) return false; continue; }
+        if (g[j * YARD.w + i] || (i >= x && i < x + w && j >= z && j < z + h && clear[j * YARD.w + i])) return false;
+      }
+      return true;
+    };
+    const put = (x, z, w, h, c) => { for (let j = z; j < z + h; j++) for (let i = x; i < x + w; i++) g[j * YARD.w + i] = c; };
+    const tryPut = (w, h, c, pad, tries = 30) => { for (let t = 0; t < tries; t++) { const x = ri(0, YARD.w - w), z = ri(0, YARD.h - h); if (free(x, z, w, h, pad)) { put(x, z, w, h, c); return [x, z]; } } return null; };
+    for (let n = ri(4, 6); n > 0; n--) tryPut(ri(4, 8), ri(5, 10), Y.WALL, 3);                 // small buildings
+    for (let n = ri(5, 7); n > 0; n--) { const v = rnd() < .5; tryPut(v ? 2 : 6, v ? 6 : 2, rnd() < .35 ? Y.CONT2 : Y.CONT, 2); }   // containers
+    for (let n = ri(8, 12); n > 0; n--) { const r = rnd(); if (r < .4) tryPut(2, 2, Y.CRATE, 1); else if (r < .65) tryPut(1, 1, Y.STACK, 1); else { const v = rnd() < .5; tryPut(v ? 1 : 3, v ? 3 : 1, Y.BARRIER, 1); } }
+    // break long sightlines with a crate stack or a short container
+    for (let pass = 0; pass < 30; pass++) {
+      let best = null;
+      for (let j = 0; j < YARD.h; j++) { let r = 0; for (let i = 0; i <= YARD.w; i++) { const open = i < YARD.w && !yardBlocksView(g[j * YARD.w + i]); if (open) r++; else { if (r > 20 && (!best || r > best.len)) best = { len: r, row: true, a: i - r, line: j }; r = 0; } } }
+      for (let i = 0; i < YARD.w; i++) { let r = 0; for (let j = 0; j <= YARD.h; j++) { const open = j < YARD.h && !yardBlocksView(g[j * YARD.w + i]); if (open) r++; else { if (r > 20 && (!best || r > best.len)) best = { len: r, row: false, a: j - r, line: i }; r = 0; } } }
+      if (!best) break;
+      let placed = false;
+      for (let t = 0; t < 20 && !placed; t++) {
+        const at = best.a + Math.floor(best.len * (.3 + rnd() * .4));
+        const [x, z] = best.row ? [at, best.line] : [best.line, at];
+        for (const [w, h, c] of [[2, 2, Y.STACK], [1, 2, Y.STACK], [2, 1, Y.STACK], [1, 1, Y.STACK]]) {
+          for (const [ox, oz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) { if (!placed && free(x + ox, z + oz, w, h, 0) && x + ox <= x && x + ox + w > x && z + oz <= z && z + oz + h > z) { put(x + ox, z + oz, w, h, c); placed = true; } }
+        }
+      }
+      if (!placed) break;
     }
-    W.push({ axis: vertical ? 'x' : 'z', at, from, to, h: H, mat, t: .5, open: isOpen ? [door(vertical ? 'r' + j : 'c' + i, from, to)] : [] });
+    if (!yardCheck(g).blocked.length) return g;
   }
-  // solid yards become buildings; open yards get a piece of cover near the middle
-  for (let j = 0; j < NJ; j++) for (let i = 0; i < NI; i++) {
-    const x0 = cx(i), x1 = cx(i + 1), z0 = cz(j), z1 = cz(j + 1);
-    if (solid[id(i, j)]) { B.push({ x: [x0, x1], z: [z0, z1], y: [0, 5.5 + rnd() * 2], mat: WALLMATS[Math.floor(rnd() * 4)] }); continue; }
-    const r = rnd(), mx = (x0 + x1) / 2 + (rnd() - .5) * 1.2, mz = (z0 + z1) / 2 + (rnd() - .5) * 1.2;
-    if (r < .3) B.push({ x: [mx - .6, mx + .6], z: [mz - .6, mz + .6], y: [0, 1.2], mat: 'crate' });
-    else if (r < .45) { B.push({ x: [mx - .6, mx + .6], z: [mz - .6, mz + .6], y: [0, 1.2], mat: 'crate' }); B.push({ x: [mx - .5, mx + .5], z: [mz - .5, mz + .5], y: [1.2, 2.2], mat: 'crate' }); }
-    else if (r < .65) { const along = rnd() < .5; B.push(along ? { x: [mx - 1.3, mx + 1.3], z: [mz - .3, mz + .3], y: [0, 1.1], mat: 'barrier' } : { x: [mx - .3, mx + .3], z: [mz - 1.3, mz + 1.3], y: [0, 1.1], mat: 'barrier' }); }
+  return new Uint8Array(YARD.w * YARD.h);
+}
+const YARD_SEED = (() => { const m = /seed=(\d+)/.exec(location.hash); return m ? +m[1] : 1 + Math.floor(Math.random() * 99999); })();
+const YARD_SOURCE = (() => {
+  const m = /yard=([^&]+)/.exec(location.hash);
+  if (m && m[1] !== 'random') { const g = yardDecode(decodeURIComponent(m[1])); if (g) return { grid: g, mode: 'custom' }; }
+  if (!m) {
+    try {
+      const st = JSON.parse(localStorage.getItem('supply-op.settings')) || {};
+      if (st.yardMode === 'custom') { const g = yardDecode(localStorage.getItem('supply-op.yard')); if (g) return { grid: g, mode: 'custom' }; }
+    } catch (e) { /* storage unavailable */ }
+  }
+  return { grid: yardRandom(YARD_SEED), mode: 'random' };
+})();
+const YARD_GRID = YARD_SOURCE.grid;
+// turns the grid into boxes (merging runs of equal cells into rectangles) plus the yard's outer walls
+function buildYard(g) {
+  const W = DEPOT.west.walls, B = DEPOT.west.boxes, H = 4.6;
+  const open = side => YARD_DOORS.filter(d => d[0] === side).map(d => [d[1], d[2], 0, H + 1]);
+  W.push({ axis: 'x', at: YARD.x0, from: YARD.z0, to: -16, h: H, mat: 'warehouse', open: open('w').filter(o => o[1] < -16) });
+  W.push({ axis: 'x', at: YARD.x0, from: 16, to: YARD.z0 + YARD.h, h: H, mat: 'warehouse', open: open('w').filter(o => o[0] > 16) });
+  W.push({ axis: 'x', at: YARD.x0 + YARD.w, from: YARD.z0, to: YARD.z0 + YARD.h, h: H, mat: 'concrete', t: .6, open: open('e') });
+  const used = new Uint8Array(g.length), hash = (x, z) => Math.abs(Math.imul(x * 73856093 ^ z * 19349663, 2654435761)) >>> 0;
+  const WALLMATS = ['warehouse', 'concrete', 'brick', 'block'], CONTS = ['contRust', 'contBlue', 'contGreen', 'contOchre', 'contGray'];
+  for (let j = 0; j < YARD.h; j++) for (let i = 0; i < YARD.w; i++) {
+    const k = j * YARD.w + i, c = g[k];
+    if (!c || used[k]) continue;
+    let w = 1; while (i + w < YARD.w && g[k + w] === c && !used[k + w]) w++;
+    let h = 1; grow: while (j + h < YARD.h) { for (let q = 0; q < w; q++) { const kk = (j + h) * YARD.w + i + q; if (g[kk] !== c || used[kk]) break grow; } h++; }
+    for (let jj = j; jj < j + h; jj++) for (let q = 0; q < w; q++) used[jj * YARD.w + i + q] = 1;
+    const x = [YARD.x0 + i, YARD.x0 + i + w], z = [YARD.z0 + j, YARD.z0 + j + h], hv = hash(i, j);
+    if (c === Y.WALL) B.push({ x, z, y: [0, H], mat: WALLMATS[hv % 4] === 'brick' ? 'hall' : WALLMATS[hv % 4], gen: true });
+    else if (c === Y.CONT || c === Y.CONT2) {
+      B.push({ x, z, y: [0, 2.6], mat: CONTS[hv % 5], kind: 'container', gen: true });
+      if (c === Y.CONT2) B.push({ x, z, y: [2.6, 5.2], mat: CONTS[(hv >> 3) % 5], kind: 'container', gen: true });
+    } else if (c === Y.CRATE) B.push({ x, z, y: [0, 1.2], mat: 'crate', gen: true });
+    else if (c === Y.STACK) { B.push({ x, z, y: [0, 1.2], mat: 'crate', gen: true }); B.push({ x: [x[0] + .1, x[1] - .1], z: [z[0] + .1, z[1] - .1], y: [1.2, 2.2], mat: 'crate', gen: true }); }
+    else if (c === Y.BARRIER) B.push({ x, z, y: [0, 1.1], mat: 'barrier', gen: true });
   }
 }
-buildDepotMaze(DEPOT_SEED);
+buildYard(YARD_GRID);
 
 // =====================================================================================
 // mirroring (Blue half -> Red half)
@@ -604,7 +701,7 @@ function buildDepotMap() {
     metal: 'metalwall', rail: 'railing', pipe: 'concrete', tank: 'concrete',
     contRust: 'contR', contBlue: 'contB', contGreen: 'contG', contOchre: 'contY', contGray: 'trailer',
   };
-  const box = (b, mat) => BOXES.push({ x0: b.x[0], x1: b.x[1], z0: b.z[0], z1: b.z[1], y0: b.y[0], y1: b.y[1], mat: mat || MATMAP[b.mat] || 'concrete', vis: !b.hidden });
+  const box = (b, mat) => BOXES.push({ x0: b.x[0], x1: b.x[1], z0: b.z[0], z1: b.z[1], y0: b.y[0], y1: b.y[1], mat: mat || MATMAP[b.mat] || 'concrete', vis: !b.hidden, gen: !!b.gen });
   for (const w of L.walls) wall(w.axis, w.at, w.from, w.to, w.h, MATMAP[w.mat] || 'concrete', (w.open || []).map(([a, b2, y0, y1]) => ({ a, b: b2, y0, y1 })), w.t ?? .5);
   for (const b of L.boxes) {
     const sx = b.x[1] - b.x[0], sz = b.z[1] - b.z[0], h = b.y[1] - b.y[0];
@@ -1865,9 +1962,10 @@ function muzzleOf(a) {
 }
 // launch state of a grenade thrown by actor a (position and velocity)
 function nadeLaunch(a) {
-  const cp = Math.cos(a.pitch + .25);
-  const d = [-Math.sin(a.yaw) * cp, Math.sin(a.pitch + .25), -Math.cos(a.yaw) * cp];
-  return { x: a.x + d[0] * .5, y: a.y + eyeH(a) - .1, z: a.z + d[2] * .5, vx: d[0] * 15 + (a.vx || 0), vy: d[1] * 15 + 1.5, vz: d[2] * 15 + (a.vz || 0), t: 0 };
+  // straight along the view direction (the arc starts on the crosshair); looking up throws farther
+  const pitch = a.pitch + .06, cp = Math.cos(pitch);
+  const d = [-Math.sin(a.yaw) * cp, Math.sin(pitch), -Math.cos(a.yaw) * cp];
+  return { x: a.x + d[0] * .5, y: a.y + eyeH(a) - .05 + d[1] * .5, z: a.z + d[2] * .5, vx: d[0] * 17 + (a.vx || 0), vy: d[1] * 17 + .8, vz: d[2] * 17 + (a.vz || 0), t: 0 };
 }
 function throwNade(a) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(.07, 10, 8), std({ color: 0x4a5634, roughness: .6 }));
@@ -2322,7 +2420,7 @@ function settingsHtml(inMatch) {
   return `
     <div class="set">
       ${inMatch ? '' : `<span class="lab">맵</span>${segHtml('map', [['supply', '보급기지'], ['depot', '물류기지']])}`}
-      ${inMatch || !DEPOT_MAP ? '' : `<span class="lab">창고 골목 배치</span><button class="btn ghost reroll" type="button" data-act="reroll">새 배치 만들기 · #${DEPOT_SEED}</button>`}
+      ${inMatch || !DEPOT_MAP ? '' : `<span class="lab">창고 골목</span><div class="yard-row"><button class="btn ghost reroll" type="button" data-act="reroll">${YARD_SOURCE.mode === 'custom' ? '무작위 배치로' : '새 무작위 배치'}</button><button class="btn ghost reroll" type="button" data-act="editor">맵 편집기</button></div>`}
       ${inMatch ? '' : `<span class="lab">목표 킬</span>${segHtml('goal', GOALS.map(g => [String(g), String(g)]))}`}
       ${inMatch ? '' : `<span class="lab">제한 시간</span>${segHtml('minutes', TIMES.map(m => [String(m), m + '분']))}`}
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
@@ -2545,10 +2643,160 @@ $('overlay').addEventListener('click', e => {
   if (b.dataset.act === 'ready') startMatch();
   if (b.dataset.act === 'loadout') showLoadout(true);
   if (b.dataset.act === 'pause') showPause();
-  if (b.dataset.act === 'reroll') { b.disabled = true; location.hash = `map=depot&seed=${1 + Math.floor(Math.random() * 99999)}`; location.reload(); }
+  if (b.dataset.act === 'reroll') { b.disabled = true; settings.yardMode = 'random'; saveSettings(); location.hash = `map=depot&yard=random&seed=${1 + Math.floor(Math.random() * 99999)}`; location.reload(); }
+  if (b.dataset.act === 'editor') openEditor();
   if (b.dataset.act === 'resume') resumeGame();
   if (b.dataset.act === 'menu') { if (document.pointerLockElement) document.exitPointerLock(); showMenu(); }
 });
+
+// =============== map editor (logistics depot yard) ===============
+// Paint the 28 x 70 m yard between the Blue spawn and the hall on a 1 m grid; the Red side is the mirror image.
+// The check runs on every stroke: all entrances must stay connected before the layout can be saved.
+const ED_TOOLS = [
+  [Y.WALL, '벽 · 건물', '#d4d6cf', '4.6m'], [Y.CONT2, '컨테이너 2단', '#8a3a2a', '5.2m'], [Y.CONT, '컨테이너', '#c0603e', '2.6m'],
+  [Y.STACK, '상자 더미', '#9a7444', '2.2m'], [Y.CRATE, '상자', '#d1a467', '1.2m'], [Y.BARRIER, '낮은 방벽', '#8f9a9a', '1.1m'], [Y.EMPTY, '지우개', '#1b1f1b', ''],
+];
+const ED_COLOR = {}; for (const [c, , col] of ED_TOOLS) ED_COLOR[c] = col;
+const ED_VIEW = { x0: -66, x1: 6, z0: -45, z1: 45 };
+let ED = null;
+function openEditor() {
+  ED = { g: new Uint8Array(YARD_GRID), tool: Y.WALL, brush: 1, undo: [], down: false, hover: null, erase: false };
+  const el = $('editor');
+  el.innerHTML = `
+    <div class="ed-bar">
+      <h2>맵 편집기</h2>
+      <p>노란 점선 안을 1m 칸으로 칠해요. 레드 쪽은 자동 대칭. 초록 선은 꼭 이어져야 하는 입구, 오른쪽 클릭은 지우기.</p>
+      <div class="ed-tools">${ED_TOOLS.map(([c, n, col, h], k) => `<button type="button" class="ed-tool" data-tool="${c}" aria-pressed="${c === ED.tool}"><i style="background:${col}"></i>${k + 1}. ${n}<small>${h}</small></button>`).join('')}</div>
+      <span class="lab" style="font-size:12px;font-weight:700;color:var(--muted)">붓 크기</span>
+      <div class="seg" style="--n:3" role="group">${[1, 2, 3].map(n => `<button type="button" data-brush="${n}" aria-pressed="${n === 1}">${n}×${n}</button>`).join('')}</div>
+      <div class="ed-status" id="edStatus"></div>
+      <div class="ed-acts">
+        <button type="button" data-ed="undo">되돌리기</button><button type="button" data-ed="clear">모두 비우기</button>
+        <button type="button" data-ed="random">무작위로 채우기</button><button type="button" data-ed="current">처음 상태로</button>
+        <button type="button" data-ed="copy">코드 복사</button><button type="button" data-ed="paste">코드 붙여넣기</button>
+        <button type="button" data-ed="close" style="grid-column: 1 / -1">닫기</button>
+        <button type="button" class="save" data-ed="save">저장하고 이 맵으로 하기</button>
+      </div>
+    </div>
+    <div class="ed-main"><canvas class="ed-canvas" id="edCanvas"></canvas></div>`;
+  el.hidden = false; $('overlay').hidden = true;
+  const cv = $('edCanvas');
+  const cell = e => {
+    const r = cv.getBoundingClientRect(), v = ED.view, x = v.x0 + (e.clientX - r.left) / v.s, z = v.z0 + (e.clientY - r.top) / v.s;
+    return [Math.floor(x - YARD.x0), Math.floor(z - YARD.z0)];
+  };
+  const paint = e => {
+    const [ci, cj] = cell(e), b = ED.brush, o = Math.floor((b - 1) / 2), c = ED.erase ? Y.EMPTY : ED.tool;
+    for (let j = cj - o; j < cj - o + b; j++) for (let i = ci - o; i < ci - o + b; i++) if (i >= 0 && j >= 0 && i < YARD.w && j < YARD.h) ED.g[j * YARD.w + i] = c;
+  };
+  cv.addEventListener('pointerdown', e => {
+    e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    ED.undo.push(new Uint8Array(ED.g)); if (ED.undo.length > 40) ED.undo.shift();
+    ED.down = true; ED.erase = e.button === 2; paint(e); drawEditor();
+  });
+  cv.addEventListener('pointermove', e => { ED.hover = cell(e); if (ED.down) paint(e); drawEditor(!ED.down); });
+  const up = () => { if (ED && ED.down) { ED.down = false; drawEditor(); } };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('pointerleave', () => { if (ED) { ED.hover = null; drawEditor(true); } });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  el.addEventListener('click', edClick);
+  addEventListener('resize', edResize); edResize();
+}
+function closeEditor() { $('editor').hidden = true; $('editor').innerHTML = ''; removeEventListener('resize', edResize); ED = null; showMenu(); }
+function edResize() {
+  if (!ED) return;
+  const cv = $('edCanvas'), r = cv.parentElement.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = Math.max(10, r.width * dpr); cv.height = Math.max(10, r.height * dpr);
+  const vw = ED_VIEW.x1 - ED_VIEW.x0, vh = ED_VIEW.z1 - ED_VIEW.z0, sc = Math.min(r.width / vw, r.height / vh);
+  ED.view = { s: sc, dpr, x0: ED_VIEW.x0 - (r.width / sc - vw) / 2, z0: ED_VIEW.z0 - (r.height / sc - vh) / 2 };
+  drawEditor();
+}
+function edClick(e) {
+  const t = e.target.closest('[data-tool]'), br = e.target.closest('[data-brush]'), a = e.target.closest('[data-ed]');
+  if (t) { ED.tool = +t.dataset.tool; $('editor').querySelectorAll('[data-tool]').forEach(x => x.setAttribute('aria-pressed', String(x === t))); }
+  if (br) { ED.brush = +br.dataset.brush; $('editor').querySelectorAll('[data-brush]').forEach(x => x.setAttribute('aria-pressed', String(x === br))); }
+  if (!a) return;
+  const act = a.dataset.ed, keep = () => { ED.undo.push(new Uint8Array(ED.g)); };
+  if (act === 'undo' && ED.undo.length) ED.g = ED.undo.pop();
+  if (act === 'clear') { keep(); ED.g.fill(0); }
+  if (act === 'random') { keep(); ED.g = yardRandom(1 + Math.floor(Math.random() * 99999)); }
+  if (act === 'current') { keep(); ED.g = new Uint8Array(YARD_GRID); }
+  if (act === 'copy') {
+    const code = yardEncode(ED.g);
+    (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(() => edNote('코드를 복사했어요.'), () => prompt('이 코드를 복사하세요', code));
+  }
+  if (act === 'paste') {
+    const code = prompt('맵 코드를 붙여넣으세요 (Y1: 로 시작)'); if (code) { const g = yardDecode(code.trim()); if (g) { keep(); ED.g = g; } else edNote('코드가 올바르지 않아요.', true); }
+  }
+  if (act === 'close') { closeEditor(); return; }
+  if (act === 'save') {
+    const chk = yardCheck(ED.g);
+    if (chk.blocked.length) { edNote('막힌 입구가 있어서 저장할 수 없어요: ' + chk.blocked.join(', '), true); return; }
+    const code = yardEncode(ED.g);
+    try { localStorage.setItem('supply-op.yard', code); } catch (err) { /* the URL below still carries it */ }
+    settings.yardMode = 'custom'; saveSettings();
+    location.hash = `map=depot&yard=${encodeURIComponent(code)}`; location.reload();
+    return;
+  }
+  drawEditor();
+}
+let edNoteT = 0;
+function edNote(msg, bad) { ED.note = [msg, bad]; clearTimeout(edNoteT); edNoteT = setTimeout(() => { if (ED) { ED.note = null; drawEditor(); } }, 3500); drawEditor(); }
+addEventListener('keydown', e => {
+  if (!ED) return;
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); if (ED.undo.length) { ED.g = ED.undo.pop(); drawEditor(); } return; }
+  const n = +e.key; if (n >= 1 && n <= ED_TOOLS.length) { const btn = $('editor').querySelectorAll('[data-tool]')[n - 1]; if (btn) btn.click(); }
+  if (e.code === 'Escape') closeEditor();
+});
+function drawEditor(hoverOnly) {
+  if (!ED || !ED.view) return;
+  const cv = $('edCanvas'), c = cv.getContext('2d'), v = ED.view, s = v.s * v.dpr;
+  const X = x => (x - v.x0) * s, Z = z => (z - v.z0) * s;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = '#121512'; c.fillRect(0, 0, cv.width, cv.height);
+  c.fillStyle = '#2a2e29'; c.fillRect(X(-64), Z(-44), 64 * s + X(6) - X(0), 88 * s);
+  // fixed map (not the generated yard), seen from above; roofs and upper floors left out
+  for (const b of BOXES) {
+    if (b.gen || b.y0 > .5 || b.x1 < ED_VIEW.x0 || b.x0 > ED_VIEW.x1) continue;
+    const h = b.y1;
+    c.fillStyle = h > 3 ? '#6d726a' : h > 1.6 ? '#585d55' : '#454a43';
+    c.fillRect(X(b.x0), Z(b.z0), Math.max(1, (b.x1 - b.x0) * s), Math.max(1, (b.z1 - b.z0) * s));
+  }
+  // zone labels
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  const label = (t, x, z, col, size) => { c.font = `900 ${Math.max(10, size * s)}px sans-serif`; c.fillStyle = col; c.fillText(t, X(x), Z(z)); };
+  label('A', 0, -31, 'rgba(242,198,74,.9)', 6); label('B', 0, 29, 'rgba(240,145,62,.9)', 6);
+  label('블루 스폰', -57, 0, 'rgba(127,176,255,.9)', 1.6); label('중앙 건물', 0, -1, 'rgba(220,210,180,.8)', 1.4);
+  label('짧은 길', -32, -31, 'rgba(220,210,180,.6)', 1.3); label('레드 쪽은 대칭 →', 2, 40, 'rgba(255,138,128,.7)', 1.2);
+  // yard cells
+  const g = ED.g;
+  for (let j = 0; j < YARD.h; j++) for (let i = 0; i < YARD.w; i++) {
+    const k = g[j * YARD.w + i]; if (!k) continue;
+    c.fillStyle = ED_COLOR[k]; c.fillRect(X(YARD.x0 + i) + .5, Z(YARD.z0 + j) + .5, s - 1, s - 1);
+  }
+  // grid lines
+  c.lineWidth = 1;
+  for (let i = 0; i <= YARD.w; i++) { c.strokeStyle = i % 5 ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.13)'; c.beginPath(); c.moveTo(X(YARD.x0 + i), Z(YARD.z0)); c.lineTo(X(YARD.x0 + i), Z(YARD.z0 + YARD.h)); c.stroke(); }
+  for (let j = 0; j <= YARD.h; j++) { c.strokeStyle = j % 5 ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.13)'; c.beginPath(); c.moveTo(X(YARD.x0), Z(YARD.z0 + j)); c.lineTo(X(YARD.x0 + YARD.w), Z(YARD.z0 + j)); c.stroke(); }
+  c.setLineDash([6, 4]); c.strokeStyle = 'rgba(242,177,58,.85)'; c.lineWidth = 2; c.strokeRect(X(YARD.x0), Z(YARD.z0), YARD.w * s, YARD.h * s); c.setLineDash([]);
+  // entrances: green when connected, red when cut off
+  const chk = yardCheck(g);
+  for (const d of YARD_DOORS) {
+    const x = d[0] === 'w' ? YARD.x0 : YARD.x0 + YARD.w, bad = chk.blocked.includes(d[3]);
+    c.strokeStyle = bad ? '#ff5a4a' : '#7fe07a'; c.lineWidth = Math.max(3, s * .5);
+    c.beginPath(); c.moveTo(X(x), Z(d[1])); c.lineTo(X(x), Z(d[2])); c.stroke();
+  }
+  // brush preview
+  if (ED.hover) {
+    const [ci, cj] = ED.hover, b = ED.brush, o = Math.floor((b - 1) / 2);
+    c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.strokeRect(X(YARD.x0 + ci - o), Z(YARD.z0 + cj - o), b * s, b * s);
+  }
+  if (hoverOnly) return;
+  const n = g.reduce((t, k) => t + (k ? 1 : 0), 0);
+  $('edStatus').innerHTML = (ED.note ? `<div class="${ED.note[1] ? 'bad' : 'good'}">${ED.note[0]}</div>` : '') +
+    (chk.blocked.length ? `<div class="bad">막힌 입구: ${chk.blocked.join(', ')}</div>` : '<div class="good">모든 입구가 이어져 있어요 ✓</div>') +
+    `<div>가장 긴 직선 시야: ${chk.longest}m${chk.longest > 30 ? ' <span class="bad">(김)</span>' : ''}</div><div>칠한 칸: ${n} / ${YARD.w * YARD.h}</div>`;
+}
 
 // =============== main loop ===============
 let last = 0;
