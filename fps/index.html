@@ -95,6 +95,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .tb.crouch { width: 50px; height: 50px; right: 96px; bottom: calc(232px + env(safe-area-inset-bottom, 0px)); }
 .tb.reload { width: 50px; height: 50px; right: 44px; bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
 .tb.swap { width: 50px; height: 50px; right: 180px; bottom: calc(132px + env(safe-area-inset-bottom, 0px)); }
+.tb.leanl { width: 50px; height: 40px; left: 170px; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); border-radius: 10px; font-size: 11px; }
+.tb.leanr { width: 50px; height: 40px; left: 226px; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); border-radius: 10px; font-size: 11px; }
 .tb.nade { width: 50px; height: 50px; right: 168px; bottom: calc(196px + env(safe-area-inset-bottom, 0px)); }
 .tb.menu { width: 44px; height: 44px; left: 50%; margin-left: -22px; top: calc(52px + env(safe-area-inset-top, 0px)); border-radius: 10px; }
 .ptr .hp, .ptr .ammo { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
@@ -175,6 +177,8 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
   <button class="tb reload" id="tReload" type="button">장전</button>
   <button class="tb swap" id="tSwap" type="button">무기</button>
   <button class="tb nade" id="tNade" type="button">수류탄</button>
+  <button class="tb leanl" id="tLeanL" type="button">◀ 기울</button>
+  <button class="tb leanr" id="tLeanR" type="button">기울 ▶</button>
   <button class="tb menu" id="tMenu" type="button">II</button>
 </div>
 
@@ -183,138 +187,213 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 'use strict';
-// =============== map: enclosed supply base ===============
-const MX = 50, MZ = 34;                     // half extents (meters)
+// =============== map: supply depot with A and B sites and a two-storey middle building ===============
+// Blue holds the west (A site north-west, B site south-west); Red attacks from the east by three routes:
+// the indoor corridor building (north, to A), the middle building with its second floor, and the long outdoor alley (south, to B).
+const MX = 48, MZ = 32;                     // half extents (meters)
+const FLOOR2 = 3.2;                         // second-floor height
 const BOXES = [];
 function addBox(cx, cz, sx, sz, h, mat, y0 = 0, vis = true) {
   BOXES.push({ x0: cx - sx / 2, x1: cx + sx / 2, z0: cz - sz / 2, z1: cz + sz / 2, y0, y1: y0 + h, mat, vis });
 }
-// Pieces on the blue half are mirrored (rotated 180°) onto the red half, so both teams get the same map.
-function addPair(cx, cz, sx, sz, h, mat, y0 = 0, vis = true) { addBox(cx, cz, sx, sz, h, mat, y0, vis); addBox(-cx, -cz, sx, sz, h, mat, y0, vis); }
-const LAMPS = [];       // [x, y, z] ceiling lights
-const RACKS = [];       // shelving visuals
-const TRUCKS = [];      // [cx, cz, dir]
-const INDOOR = [];      // floor areas with an indoor floor
-const TANKS = [];       // fuel tank visuals [x, z]
+// A wall with door/window openings. axis 'x': wall at x = c running along z; axis 'z': wall at z = c running along x.
+// holes: [{ a, b, y0, y1 }] along the wall length.
+function wall(axis, c, a0, a1, h, mat, holes = [], t = .5, base = 0) {
+  const cuts = [...new Set([a0, a1, ...holes.flatMap(o => [o.a, o.b])])].filter(v => v >= a0 && v <= a1).sort((p, q) => p - q);
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const s = cuts[i], e = cuts[i + 1], mid = (s + e) / 2;
+    let ys = [[base, base + h]];
+    for (const o of holes) if (o.a <= mid && o.b >= mid)
+      ys = ys.flatMap(([y0, y1]) => { const r = []; if (o.y0 > y0) r.push([y0, Math.min(y1, o.y0)]); if (o.y1 < y1) r.push([Math.max(y0, o.y1), y1]); return r; });
+    for (const [y0, y1] of ys) if (y1 - y0 > .01) {
+      if (axis === 'x') addBox(c, mid, t, e - s, y1 - y0, mat, y0); else addBox(mid, c, e - s, t, y1 - y0, mat, y0);
+    }
+  }
+}
+const door = (a, b, h = 2.7) => ({ a, b, y0: 0, y1: h });
+const win = (a, b, y0 = 1, y1 = 2.2) => ({ a, b, y0, y1 });
+// stairs of 10 steps rising 3.2 m over 4.5 m; dir +1 climbs toward +x, -1 toward -x (all run along x)
+function stairs(xBottom, dir, z0, z1) {
+  for (let k = 0; k < 10; k++) addBox(xBottom + dir * (.45 * k + .225), (z0 + z1) / 2, .45, z1 - z0, (k + 1) * .32, 'concrete');
+}
+const LAMPS = [], RACKS = [], TRUCKS = [], INDOOR = [], TANKS = [], SIGNS = [];
+const FLOORS2 = [];     // walkable second-floor rectangles [x0, z0, x1, z1]
+const LINKS = [];       // stair links between floors: [groundX, groundZ, upperX, upperZ]
 (function buildMap() {
   // outer perimeter
-  addBox(0, -MZ - .5, MX * 2 + 2, 1, 8, 'metalwall'); addBox(0, MZ + .5, MX * 2 + 2, 1, 8, 'metalwall');
-  addBox(-MX - .5, 0, 1, MZ * 2, 8, 'metalwall'); addBox(MX + .5, 0, 1, MZ * 2, 8, 'metalwall');
+  addBox(0, -MZ - .5, MX * 2 + 2, 1, 9, 'metalwall'); addBox(0, MZ + .5, MX * 2 + 2, 1, 9, 'metalwall');
+  addBox(-MX - .5, 0, 1, MZ * 2, 9, 'metalwall'); addBox(MX + .5, 0, 1, MZ * 2, 9, 'metalwall');
 
-  // central warehouse x -14..14, z -10..10: roofed, doors on all four sides
-  addPair(-14, -5.75, .5, 8.5, 6.5, 'whwall'); addPair(-14, 5.75, .5, 8.5, 6.5, 'whwall'); addPair(-14, 0, .5, 3, 3.5, 'whwall', 3);
-  addPair(-11.25, 10, 5.5, .5, 6.5, 'whwall'); addPair(11.25, 10, 5.5, .5, 6.5, 'whwall');
-  addBox(0, 10, 13, .5, 6.5, 'whwall'); addBox(0, -10, 13, .5, 6.5, 'whwall');
-  addPair(-7.5, 10, 2, .5, 3.5, 'whwall', 3); addPair(7.5, 10, 2, .5, 3.5, 'whwall', 3);
-  addBox(0, 0, 28.6, 20.6, .35, 'roof', 6.5);
-  INDOOR.push([-14, -10, 14, 10]);
-  for (const [cx, cz] of [[-8.5, 4.5], [-8.5, -4.5], [-2, 6.6]]) { addPair(cx, cz, 6, 1, 3.2, 'rack', 0, false); RACKS.push([cx, cz, 6, 1, 3.2], [-cx, -cz, 6, 1, 3.2]); }
-  addPair(-11.5, 0, .6, .6, 6.5, 'concrete'); addPair(-4.5, 0, .6, .6, 6.5, 'concrete');
-  addBox(0, 0, 1.4, 1.4, 1.4, 'crate'); addPair(-1.4, .6, 1.4, 1.4, 1.4, 'crate'); addPair(-.7, .3, 1.4, 1.4, 1.4, 'crate', 1.4);
-  addPair(-12.4, 8.4, 1.4, 1.4, 1.4, 'crate'); addPair(-12.4, -8.4, 1.4, 1.4, 1.4, 'crate'); addPair(-12.4, -8.4, 1.4, 1.4, 1.4, 'crate', 1.4);
-  for (const [x, z] of [[-9, 0], [9, 0], [-3, -3.5], [3, 3.5], [-3, 3.5], [3, -3.5]]) LAMPS.push([x, 6.2, z]);
+  // Blue base line (x = -38) with one gate to each of A, middle and B
+  wall('x', -38, -32, 32, 3.5, 'concrete', [door(20, 24, 9), door(-2, 2, 9), door(-24, -20, 9)], .6);
+  // A / middle / B separation walls, each with one gap
+  wall('z', 10, -38, -8, 3.5, 'concrete', [door(-26, -20, 9)], .6);
+  wall('z', -10, -38, -8, 3.5, 'concrete', [door(-26, -20, 9)], .6);
 
-  // guard room (enterable, window toward the corridor) and a solid block beside it
-  addPair(-24.5, 9, 7.5, .5, 6, 'brick'); addPair(-28, 6, .5, 6, 6, 'brick');
-  addPair(-21, 4, .5, 2, 6, 'brick'); addPair(-21, 8, .5, 2, 6, 'brick'); addPair(-21, 6, .5, 2, 3, 'brick', 3);
-  addPair(-27, 3, 2, .5, 6, 'brick'); addPair(-22, 3, 2, .5, 6, 'brick');
-  addPair(-24.5, 3, 3, .5, 1, 'brick'); addPair(-24.5, 3, 3, .5, 3.8, 'brick', 2.2);
-  addPair(-24.5, 6, 7.6, 6.6, .3, 'roof', 6);
-  addPair(-26.6, 7.6, 1.2, 1.2, 1.2, 'crate');
-  INDOOR.push([-28, 3, -21, 9], [21, -9, 28, -3]);
-  LAMPS.push([-24.5, 5.7, 6], [24.5, 5.7, -6]);
-  addPair(-24.5, -6, 7, 6, 6.5, 'concrete');
-  addPair(-18, -2.2, 1.2, 1.2, 1.2, 'crate'); addPair(-18, -1, 1.2, 1.2, 1.2, 'crate', 1.2); addPair(-17.5, 3.5, 3, .6, 1, 'barrier');
+  // ---- A site (north-west courtyard): containers, dumpsters, crates
+  addBox(-30, 25, 6, 2.5, 2.6, 'contR'); addBox(-30, 25, 6, 2.5, 2.6, 'contB', 2.6);
+  addBox(-18, 17, 2.5, 6, 2.6, 'contG'); addBox(-24, 29.5, 6, 2.5, 2.6, 'contB');
+  addBox(-12, 28.5, 2.2, 1.3, 1.4, 'dumpster'); addBox(-26, 13.2, 2.2, 1.3, 1.4, 'dumpster');
+  addBox(-34, 14, 1.4, 1.4, 1.4, 'crate'); addBox(-14, 21.5, 1.4, 1.4, 1.4, 'crate'); addBox(-14, 21.5, 1.4, 1.4, 1.4, 'crate', 1.4);
+  addBox(-22, 21, 1.4, 1.4, 1.4, 'crate'); addBox(-11, 14, 3, .6, 1, 'barrier');
+  SIGNS.push(['A', -25, 20.5]);
 
-  // north yard (mirrored to the south): storage block, parked truck, open shed, stacked containers
-  addPair(0, 31, 40, 6, 7, 'concrete');
-  addPair(-6, 17, 8, 2.6, 2.7, 'trailer', .9); addPair(-.4, 17, 2.4, 2.5, 2.3, 'cab', .5);
-  TRUCKS.push([-6, 17, 1], [6, -17, -1]);
-  for (const [x, z] of [[-29.6, 20.4], [-20.4, 20.4], [-29.6, 27.6], [-20.4, 27.6]]) addPair(x, z, .4, .4, 4.5, 'concrete');
-  addPair(-25, 24, 10.4, 8.4, .3, 'roof', 4.5);
-  addPair(-27, 23, 1.4, 1.4, 1.4, 'crate'); addPair(-27, 23, 1.4, 1.4, 1.4, 'crate', 1.4); addPair(-23, 25.5, 1.4, 1.4, 1.4, 'crate'); addPair(-24, 21.6, 3, .6, 1, 'barrier');
-  addPair(12, 22.5, 6, 2.5, 2.6, 'contR'); addPair(12, 22.5, 6, 2.5, 2.6, 'contB', 2.6); addPair(4, 25, 2.5, 6, 2.6, 'contG');
-  addPair(-16, 13.4, 1.4, 1.4, 1.4, 'crate'); addPair(-16, 13.4, 1.4, 1.4, 1.4, 'crate', 1.4); addPair(-14.5, 13.6, 1.4, 1.4, 1.4, 'crate');
-  addPair(17, 13.5, 3, .6, 1, 'barrier'); addPair(21, 18, 1.4, 1.4, 1.4, 'crate'); addPair(-34, 16, .6, 3, 1, 'barrier');
-  addPair(-36, 26, 1.4, 1.4, 1.4, 'crate'); addPair(30, 16, 2.5, 6, 2.6, 'contB');
-  // fuel tanks in the yard corner (box colliders, round visuals)
-  addPair(-42, 27, 3.2, 3.2, 3.6, 'tank', 0, false); TANKS.push([-42, 27], [42, -27]);
+  // ---- B site (south-west yard): container stacks and crates
+  addBox(-30, -18, 6, 2.5, 2.6, 'contB'); addBox(-30, -18, 6, 2.5, 2.6, 'contR', 2.6);
+  addBox(-16, -26, 6, 2.5, 2.6, 'contG'); addBox(-22, -14.5, 2.5, 5, 2.6, 'contR');
+  addBox(-12, -16, 1.4, 1.4, 1.4, 'crate'); addBox(-35, -28, 1.4, 1.4, 1.4, 'crate'); addBox(-24, -29.5, 1.4, 1.4, 1.4, 'crate');
+  addBox(-24, -29.5, 1.4, 1.4, 1.4, 'crate', 1.4); addBox(-33, -12.5, 2.2, 1.3, 1.4, 'dumpster');
+  SIGNS.push(['B', -24, -22]);
 
-  // spawn base: wall line with three exits, sandbags and buildings at the back
-  addPair(-38, -6.5, .6, 7, 2.2, 'concrete'); addPair(-38, 6.5, .6, 7, 2.2, 'concrete');
-  addPair(-35, 0, .8, 3, 1.1, 'sandbag'); addPair(-33, -14, .8, 3, 1.1, 'sandbag'); addPair(-33, 14, .8, 3, 1.1, 'sandbag');
-  addPair(-47.5, -18, 5, 8, 5, 'brick'); addPair(-47.5, 18, 5, 8, 5, 'brick');
+  // ---- middle yard (between A and B in front of Blue): cover, plus the balcony stairs
+  addBox(-20, 0, 1.4, 1.4, 1.4, 'crate'); addBox(-28, 5, 1.4, 1.4, 1.4, 'crate'); addBox(-28, -5, 1.4, 1.4, 1.4, 'crate');
+  addBox(-24, -1.5, .6, 3, 1, 'barrier'); addBox(-32, 0, .8, 3, 1.1, 'sandbag');
+
+  // ---- middle building x -6..14, z -8..8: two storeys, doors on every side, windows upstairs
+  const H = 6.8;
+  wall('x', -6, -8, 8, H, 'brick', [door(-1.5, 1.5), { a: -1, b: 1, y0: FLOOR2, y1: FLOOR2 + 2.4 }, win(-6, -3.5, 4.1, 5.2), win(3.5, 6, 4.1, 5.2)]);
+  wall('x', 14, -8, 8, H, 'brick', [door(-1.5, 1.5), win(4, 6), win(-6, -3, 4.1, 5.2), win(3, 6, 4.1, 5.2)]);
+  wall('z', 8, -6.25, 14.25, H, 'brick', [door(2, 4.5), win(-4, -1, 4.1, 5.2), win(8, 11, 4.1, 5.2)]);
+  wall('z', -8, -6.25, 14.25, H, 'brick', [door(-3, -.5), win(0, 3, 4.1, 5.2), win(10, 12, 4.1, 5.2)]);
+  addBox(4, 0, 20.6, 16.6, .3, 'roof', H);
+  // second floor slab with a stairwell hole at x 4..8.5, z -7.75..-5.75
+  addBox(-.875, 0, 9.75, 15.5, .2, 'slab', FLOOR2 - .2); addBox(6.25, 1, 4.5, 13.5, .2, 'slab', FLOOR2 - .2); addBox(11.125, 0, 5.25, 15.5, .2, 'slab', FLOOR2 - .2);
+  FLOORS2.push([-5.75, -7.75, 4, 7.75], [4, -5.75, 8.5, 7.75], [8.5, -7.75, 13.75, 7.75]);
+  stairs(4, 1, -7.75, -5.75);
+  wall('z', -5.75, 4, 8.5, 1, 'railing', [], .12, FLOOR2); wall('x', 4, -7.75, -5.75, 1, 'railing', [], .12, FLOOR2);
+  LINKS.push([3.3, -6.75, 9.3, -6.75]);
+  addBox(1, 4, 1.4, 1.4, 1.4, 'crate'); addBox(10, -3, 1.4, 1.4, 1.4, 'crate');                       // ground floor cover
+  addBox(-2, -4, 1.4, 1.4, 1.2, 'crate', FLOOR2); addBox(11, 4.5, 1.4, 1.4, 1.2, 'crate', FLOOR2);   // upstairs cover
+  addBox(2.5, 3, .6, 3, 1, 'barrier', FLOOR2);
+  RACKS.push([8, 6.7, 6, 1, 2.6, 0]); addBox(8, 6.7, 6, 1, 2.6, 'rack', 0, false);
+  INDOOR.push([-6, -8, 14, 8]);
+  LAMPS.push([0, 2.85, 3], [9, 2.85, -2], [0, H - .25, 0], [10, H - .25, 3]);
+  // west balcony on the second floor with its own outdoor stairs from the middle yard
+  addBox(-8, 0, 4, 8, .2, 'slab', FLOOR2 - .2); addBox(-6, 0, .5, 2, .2, 'slab', FLOOR2 - .2);
+  FLOORS2.push([-10, -4, -6, 4], [-6.25, -1, -5.75, 1]);
+  addBox(-9.8, -3.8, .3, .3, FLOOR2 - .2, 'concrete'); addBox(-9.8, 1.6, .3, .3, FLOOR2 - .2, 'concrete');
+  wall('x', -10, -4, 2, 1, 'railing', [], .12, FLOOR2); wall('z', 4, -10, -6, 1, 'railing', [], .12, FLOOR2); wall('z', -4, -10, -6, 1, 'railing', [], .12, FLOOR2);
+  stairs(-14.5, 1, 2, 4);
+  LINKS.push([-15.2, 3, -9.4, 3]);
+
+  // ---- corridor building (north): long indoor route from the Red side to A, zig-zag partitions
+  wall('x', -8, 12, 26, 6, 'whwall', [door(17.5, 20.5)]);
+  wall('x', 30, 12, 26, 6, 'whwall', [door(17.5, 20.5)]);
+  wall('z', 12, -8.25, 30.25, 6, 'whwall', [door(1, 3.5), door(22, 25), win(8, 12)]);
+  wall('z', 26, -8.25, 30.25, 6, 'whwall');
+  wall('x', 4, 16, 25.75, 6, 'whwall'); wall('x', 16, 12.25, 22, 6, 'whwall');
+  addBox(11, 19, 38.6, 14.6, .3, 'roof', 6);
+  addBox(10, 14, 1.4, 1.4, 1.4, 'crate'); addBox(22, 24.5, 1.4, 1.4, 1.4, 'crate'); addBox(-4, 23.5, 1.4, 1.4, 1.4, 'crate');
+  addBox(-4, 23.5, 1.4, 1.4, 1.4, 'crate', 1.4); addBox(26, 15, 1.4, 1.4, 1.4, 'crate');
+  RACKS.push([10, 25.1, 6, 1, 3.2, 0]); addBox(10, 25.1, 6, 1, 3.2, 'rack', 0, false);
+  RACKS.push([-2, 12.9, 6, 1, 3.2, 0]); addBox(-2, 12.9, 6, 1, 3.2, 'rack', 0, false);
+  INDOOR.push([-8, 12, 30, 26]);
+  LAMPS.push([-2, 5.7, 19], [10, 5.7, 19], [23, 5.7, 19]);
+  addBox(11, 29, 38, 6, 7.5, 'concrete');                                // storage block behind it
+
+  // ---- south block and the long B alley
+  addBox(12, -16, 36, 8, 7, 'brick');                                    // x -6..30, z -20..-12
+  addBox(22, -25, 8, 2.6, 2.7, 'trailer', .9); addBox(27.6, -25, 2.4, 2.5, 2.3, 'cab', .5); TRUCKS.push([22, -25, 1]);
+  addBox(8, -28.5, 3, .6, 1, 'barrier'); addBox(0, -23, 1.4, 1.4, 1.4, 'crate'); addBox(0, -23, 1.4, 1.4, 1.4, 'crate', 1.4);
+  addBox(14, -21.6, 1.4, 1.4, 1.4, 'crate'); addBox(-4, -29, 1.4, 1.4, 1.4, 'crate');
+
+  // ---- Red courtyard and spawn side
+  addBox(20, 0, 1.4, 1.4, 1.4, 'crate'); addBox(26, 6, 1.4, 1.4, 1.4, 'crate'); addBox(26, -6, 1.4, 1.4, 1.4, 'crate');
+  addBox(22, -9, 3, .6, 1, 'barrier'); addBox(22, 9.5, 3, .6, 1, 'barrier');
+  addBox(35, 6, .8, 4, 1.1, 'sandbag'); addBox(35, -6, .8, 4, 1.1, 'sandbag'); addBox(33, 0, .8, 3, 1.1, 'sandbag');
+  addBox(36, 22, 6, 2.5, 2.6, 'contG'); addBox(40, -24, 2.5, 6, 2.6, 'contR');
+  addBox(43, 27, 3.2, 3.2, 3.6, 'tank', 0, false); TANKS.push([43, 27]);
+  addBox(-44, 27, 3.2, 3.2, 3.6, 'tank', 0, false); TANKS.push([-44, 27]);
+  addBox(-45, -27, 5, 7, 4.5, 'brick');
 })();
 
-// =============== navigation grid (1 m cells) ===============
-const GW = MX * 2, GH = MZ * 2;
-const walk = new Uint8Array(GW * GH);
+// =============== navigation: two floors on a 1 m grid, joined by stair links ===============
+const GW = MX * 2, GH = MZ * 2, NC = GW * GH;
+const walk = new Uint8Array(NC * 2);         // layer 0 = ground, layer 1 = second floor
 const cellOf = (x, z) => [Math.floor(x + MX), Math.floor(z + MZ)];
 const cellCenter = (i, j) => [i - MX + .5, j - MZ + .5];
 (function buildNav() {
   const R = .45;
   for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
     const [x, z] = cellCenter(i, j);
-    let ok = true;
-    for (const b of BOXES) if (b.y0 < 1.8 && x + R > b.x0 && x - R < b.x1 && z + R > b.z0 && z - R < b.z1) { ok = false; break; }
-    walk[j * GW + i] = ok ? 1 : 0;
+    const blocked = (lo, hi) => BOXES.some(b => b.y0 < hi && b.y1 > lo && x + R > b.x0 && x - R < b.x1 && z + R > b.z0 && z - R < b.z1);
+    walk[j * GW + i] = blocked(0, 1.8) ? 0 : 1;
+    const onFloor = FLOORS2.some(([x0, z0, x1, z1]) => x > x0 + .25 && x < x1 - .25 && z > z0 + .25 && z < z1 - .25);
+    walk[NC + j * GW + i] = onFloor && !blocked(FLOOR2 + .05, FLOOR2 + 1.8) ? 1 : 0;
   }
 })();
-const walkable = (i, j) => i >= 0 && j >= 0 && i < GW && j < GH && walk[j * GW + i] === 1;
-function gridLine(a, b) {
+const layerOf = y => (y > FLOOR2 - .8 ? 1 : 0);
+const walkable = (i, j, l = 0) => i >= 0 && j >= 0 && i < GW && j < GH && walk[l * NC + j * GW + i] === 1;
+function gridLine(a, b, l) {
   let [x0, y0] = a; const [x1, y1] = b;
   const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
   let err = dx - dy;
   for (;;) {
-    if (!walkable(x0, y0)) return false;
+    if (!walkable(x0, y0, l)) return false;
     if (x0 === x1 && y0 === y1) return true;
     const e2 = 2 * err;
-    if (e2 > -dy && e2 < dx) { if (!walkable(x0 + sx, y0) || !walkable(x0, y0 + sy)) return false; }
+    if (e2 > -dy && e2 < dx) { if (!walkable(x0 + sx, y0, l) || !walkable(x0, y0 + sy, l)) return false; }
     if (e2 > -dy) { err -= dy; x0 += sx; }
     if (e2 < dx) { err += dx; y0 += sy; }
   }
 }
-function nearestWalk(i, j) {
-  if (walkable(i, j)) return [i, j];
-  for (let r = 1; r < 8; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) if (walkable(i + di, j + dj)) return [i + di, j + dj];
+function nearestWalk(i, j, l) {
+  if (walkable(i, j, l)) return [i, j];
+  for (let r = 1; r < 10; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) if (walkable(i + di, j + dj, l)) return [i + di, j + dj];
   return [i, j];
 }
-function findPath(sx, sz, tx, tz) {
-  const s = nearestWalk(...cellOf(sx, sz)), t = nearestWalk(...cellOf(tx, tz));
-  const N = GW * GH, start = s[1] * GW + s[0], goal = t[1] * GW + t[0];
-  const g = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+// stair links as graph edges between a ground node and an upper node
+const LINK_EDGES = new Map();
+for (const [gx, gz, ux, uz] of LINKS) {
+  const g = nearestWalk(...cellOf(gx, gz), 0), u = nearestWalk(...cellOf(ux, uz), 1);
+  const a = g[1] * GW + g[0], b = NC + u[1] * GW + u[0];
+  if (!LINK_EDGES.has(a)) LINK_EDGES.set(a, []); if (!LINK_EDGES.has(b)) LINK_EDGES.set(b, []);
+  LINK_EDGES.get(a).push(b); LINK_EDGES.get(b).push(a);
+}
+function findPath(sx, sz, sl, tx, tz, tl) {
+  const s = nearestWalk(...cellOf(sx, sz), sl), t = nearestWalk(...cellOf(tx, tz), tl);
+  const start = sl * NC + s[1] * GW + s[0], goal = tl * NC + t[1] * GW + t[0];
+  const g = new Float32Array(NC * 2).fill(Infinity), from = new Int32Array(NC * 2).fill(-1), closed = new Uint8Array(NC * 2);
   const heap = [];
   const push = (n, f) => { heap.push([f, n]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top[1]; };
-  const hf = n => { const dx = Math.abs(n % GW - t[0]), dz = Math.abs(((n / GW) | 0) - t[1]); return Math.max(dx, dz) + .414 * Math.min(dx, dz); };
-  g[start] = 0; push(start, hf(start));
+  const hf = n => { const c = n % NC, dx = Math.abs(c % GW - t[0]), dz = Math.abs(((c / GW) | 0) - t[1]); return Math.max(dx, dz) + .414 * Math.min(dx, dz) + (((n >= NC) !== (tl === 1)) ? 4 : 0); };
+  g[start] = 0; push(start, 0);
   let found = false;
   while (heap.length) {
     const n = pop();
     if (closed[n]) continue;
     if (n === goal) { found = true; break; }
     closed[n] = 1;
-    const ni = n % GW, nj = (n / GW) | 0;
+    const l = n >= NC ? 1 : 0, c = n % NC, ni = c % GW, nj = (c / GW) | 0;
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
       if (!di && !dj) continue;
       const ai = ni + di, aj = nj + dj;
-      if (!walkable(ai, aj)) continue;
-      if (di && dj && (!walkable(ni + di, nj) || !walkable(ni, nj + dj))) continue;
-      const m = aj * GW + ai, cost = g[n] + (di && dj ? 1.414 : 1);
+      if (!walkable(ai, aj, l)) continue;
+      if (di && dj && (!walkable(ni + di, nj, l) || !walkable(ni, nj + dj, l))) continue;
+      const m = l * NC + aj * GW + ai, cost = g[n] + (di && dj ? 1.414 : 1);
       if (cost < g[m]) { g[m] = cost; from[m] = n; push(m, cost + hf(m)); }
     }
+    for (const m of LINK_EDGES.get(n) || []) { const cost = g[n] + 6; if (cost < g[m]) { g[m] = cost; from[m] = n; push(m, cost + hf(m)); } }
   }
   if (!found) return [];
-  const cells = [];
-  for (let n = goal; n !== -1; n = from[n]) cells.push([n % GW, (n / GW) | 0]);
-  cells.reverse();
+  const nodes = [];
+  for (let n = goal; n !== -1; n = from[n]) nodes.push(n);
+  nodes.reverse();
+  // string-pull within each floor; always keep the nodes where the floor changes
+  const cellXY = n => { const c = n % NC; return [c % GW, (c / GW) | 0]; };
+  const lay = n => (n >= NC ? 1 : 0);
   const out = []; let anchor = 0;
-  for (let k = 2; k < cells.length; k++) if (!gridLine(cells[anchor], cells[k])) { out.push(cells[k - 1]); anchor = k - 1; }
-  out.push(cells[cells.length - 1]);
-  return out.map(c => cellCenter(c[0], c[1]));
+  for (let k = 1; k < nodes.length; k++) {
+    if (lay(nodes[k]) !== lay(nodes[k - 1])) { if (k - 1 !== anchor || !out.length || out[out.length - 1] !== nodes[k - 1]) out.push(nodes[k - 1]); out.push(nodes[k]); anchor = k; continue; }
+    if (k >= anchor + 2 && !gridLine(cellXY(nodes[anchor]), cellXY(nodes[k]), lay(nodes[k]))) { out.push(nodes[k - 1]); anchor = k - 1; }
+  }
+  if (out[out.length - 1] !== nodes[nodes.length - 1]) out.push(nodes[nodes.length - 1]);
+  return out.map(n => { const [i, j] = cellXY(n); const [x, z] = cellCenter(i, j); return [x, z, lay(n)]; });
 }
 const POIS = [];
-for (let z = -30; z <= 30; z += 4) for (let x = -44; x <= 44; x += 4) { if (walkable(...cellOf(x, z))) POIS.push([x, z]); }
+for (let z = -28; z <= 28; z += 4) for (let x = -44; x <= 44; x += 4) { if (walkable(...cellOf(x, z), 0)) POIS.push([x, z, 0]); }
+for (const [x, z] of [[-1, 4], [11, -3], [11, 5], [-8, 0], [1, -5]]) if (walkable(...cellOf(x, z), 1)) POIS.push([x, z, 1], [x, z, 1]);
 
 // =============== ray tests ===============
 function rayBox(o, d, b, maxT) {
@@ -371,7 +450,7 @@ const DIFF = {
 const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈', '코브라', '하이에나', '독사', '까마귀'] };
 const GOAL = 40, MATCH_TIME = 300, RESPAWN = 3;
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
 const G = { state: 'menu', time: 0, score: { blue: 0, red: 0 }, actors: [], nades: [], countdown: 0 };
@@ -561,10 +640,27 @@ function initThree() {
   };
   const mats = {};
   for (const k in P) { const p = P[k]; mats[k] = std({ ...p, bumpMap: p.map, bumpScale: .025 }); }
+  mats.slab = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, roughness: .9 });
+  mats.railing = std({ color: 0x5d6166, roughness: .5, metalness: .6 });
+  const railMat = std({ color: 0xc9a43a, roughness: .45, metalness: .5 });
+  mats.dumpster = std({ color: 0x2f5a3a, roughness: .6, metalness: .3 });
   for (const b of BOXES) {
     if (!b.vis) continue;
+    if (b.mat === 'railing') {    // pipe railing: top rail, mid rail and posts; the box stays as the collider
+      const lx = b.x1 - b.x0, lz = b.z1 - b.z0, along = lx > lz, len = Math.max(lx, lz), cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
+      for (const y of [b.y1 - .03, b.y0 + .5]) {
+        const r = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, len, 8), railMat);
+        r.rotation.set(along ? 0 : Math.PI / 2, 0, along ? Math.PI / 2 : 0); r.position.set(cx, y, cz); r.castShadow = true; scene.add(r);
+      }
+      for (let k = 0; k <= Math.ceil(len / .9); k++) {
+        const f = Math.min(1, k * .9 / len), px = along ? b.x0 + lx * f : cx, pz = along ? cz : b.z0 + lz * f;
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(.025, .025, b.y1 - b.y0, 6), railMat);
+        post.position.set(px, (b.y0 + b.y1) / 2, pz); post.castShadow = true; scene.add(post);
+      }
+      continue;
+    }
     const sx = b.x1 - b.x0, sy = b.y1 - b.y0, sz = b.z1 - b.z0;
-    const m = new THREE.Mesh(boxGeometry(sx, sy, sz, TEX[b.mat].tileSize), mats[b.mat]);
+    const m = new THREE.Mesh(boxGeometry(sx, sy, sz, TEX[b.mat] ? TEX[b.mat].tileSize : 2), mats[b.mat]);
     m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
     m.castShadow = true; m.receiveShadow = true;
     scene.add(m);
@@ -580,10 +676,18 @@ function initThree() {
   for (const [x0, z0, x1, z1] of INDOOR) plane(x0, z0, x1, z1, TEX.floor, floorMat, .005);
   const lineMat = std({ color: 0xd9b030, roughness: .7, polygonOffset: true, polygonOffsetFactor: -2 });
   const stripe = (x, z, w, d) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat); m.rotation.x = -Math.PI / 2; m.position.set(x, .01, z); m.receiveShadow = true; scene.add(m); };
-  for (const s of [1, -1]) { stripe(0, s * 2.4, 26, .12); stripe(-5.2 * s, s * 7, .12, 5); stripe(5.2 * s, s * 7, .12, 5); stripe(0, s * 12.5, 56, .15); stripe(-34 * s, 0, .15, 50); }
+  stripe(11, 17.2, 37, .12); stripe(11, 20.8, 37, .12); stripe(4, -2.5, 19, .12); stripe(4, 2.5, 19, .12); stripe(12, -26, 40, .15);
+  for (const [ch, x, z] of SIGNS) {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d'); g.strokeStyle = 'rgba(230,200,70,.9)'; g.lineWidth = 14; g.beginPath(); g.arc(128, 128, 110, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = 'rgba(230,200,70,.92)'; g.font = 'bold 170px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ch, 128, 140);
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: .8, polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.rotation.x = -Math.PI / 2; m.rotation.z = Math.PI / 2; m.position.set(x, .015, z); m.receiveShadow = true; scene.add(m);
+  }
   const spawnMat = (c) => std({ color: c, roughness: .8, transparent: true, opacity: .35, polygonOffset: true, polygonOffsetFactor: -2 });
-  const sz = new THREE.Mesh(new THREE.PlaneGeometry(6, 18), spawnMat(0x2f5fa6)); sz.rotation.x = -Math.PI / 2; sz.position.set(-44.5, .012, 0); scene.add(sz);
-  const rz = sz.clone(); rz.material = spawnMat(0xa63a2f); rz.position.x = 44.5; scene.add(rz);
+  const sz = new THREE.Mesh(new THREE.PlaneGeometry(6, 18), spawnMat(0x2f5fa6)); sz.rotation.x = -Math.PI / 2; sz.position.set(-43.5, .012, 0); scene.add(sz);
+  const rz = sz.clone(); rz.material = spawnMat(0xa63a2f); rz.position.x = 43.5; scene.add(rz);
   // shelving racks with stock on them
   const upr = std({ color: 0x2c4f86, roughness: .5, metalness: .6 }), beam = std({ color: 0xd2661e, roughness: .5, metalness: .5 });
   const shelf = std({ color: 0x7c7f80, roughness: .7, metalness: .5 }), box = std({ map: TEX.crate, roughness: .9 });
@@ -897,7 +1001,7 @@ const bodyTop = a => (a.crouch ? 1.0 : 1.45);
 function spawnActor(a) {
   const side = a.team === 'blue' ? -1 : 1;
   for (let tries = 0; tries < 40; tries++) {
-    const x = side * (42 + Math.random() * 5), z = (Math.random() - .5) * 18;
+    const x = side * (41 + Math.random() * 5), z = (Math.random() - .5) * 16;
     if (!walkable(...cellOf(x, z))) continue;
     if (G.actors.some(o => o !== a && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.2)) continue;
     a.x = x; a.z = z; break;
@@ -906,7 +1010,7 @@ function spawnActor(a) {
   a.yaw = side < 0 ? -Math.PI / 2 : Math.PI / 2; a.pitch = 0; a.lastHitBy = null;
   if (a.isMe) resetLoadout();
   else {
-    a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.mesh.position.set(a.x, 0, a.z);
+    a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.mesh.position.set(a.x, 0, a.z); a.vy = 0;
     Object.assign(a.ai, { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, lastSeen: null });
     a.hp = a.team === 'red' ? DIFF[settings.diff].hp : 100;
   }
@@ -916,7 +1020,7 @@ function damage(victim, amount, attacker, weapon, head, from) {
   victim.hp -= amount;
   victim.lastHitBy = attacker;
   if (victim.isMe) hurtFlash(from);
-  else if (attacker && victim.team !== attacker.team) { victim.ai.lastSeen = [attacker.x, attacker.z]; if (!victim.ai.target) victim.ai.look = Math.atan2(-(attacker.x - victim.x), -(attacker.z - victim.z)); }
+  else if (attacker && victim.team !== attacker.team) { victim.ai.lastSeen = [attacker.x, attacker.z, layerOf(attacker.y)]; if (!victim.ai.target) victim.ai.look = Math.atan2(-(attacker.x - victim.x), -(attacker.z - victim.z)); }
   if (victim.hp > 0) return false;
   victim.hp = 0; victim.dead = true; victim.deaths++; victim.respawn = RESPAWN;
   if (attacker && attacker !== victim) { attacker.kills++; G.score[attacker.team]++; }
@@ -939,7 +1043,7 @@ function setAim(v) {
 }
 function resetLoadout() {
   for (const k of ['rifle', 'pistol', 'sniper', 'knife']) { const w = WEAPONS[k]; ammo[k] = w.melee ? { mag: 0, res: 0 } : { mag: w.mag, res: w.res }; }
-  loadoutPrimary = settings.primary;
+  loadoutPrimary = settings.primary; leanToggle = 0; touchLean = 0;
   nades = 2; reloadT = 0; fireCd = 0; prevWeapon = 'pistol'; crouchToggle = false; selectWeapon(loadoutPrimary, true);
 }
 function selectWeapon(k, instant) {
@@ -959,6 +1063,7 @@ function moveAxis(a, ax, d, h) {
   for (let i = 0; i < n; i++) {
     a[ax] += s;
     const b = collidesAt(a.x, a.y, a.z, h);
+    if (b && ax !== 'y' && b.y1 - a.y <= .55 && !collidesAt(a.x, b.y1 + .01, a.z, h)) { a.y = b.y1; continue; }   // climb a step
     if (b) {
       if (ax === 'y') a.y = s < 0 ? b.y1 : b.y0 - h;
       else if (ax === 'x') a.x = s > 0 ? b.x0 - PR - 1e-3 : b.x1 + PR + 1e-3;
@@ -971,6 +1076,26 @@ function moveAxis(a, ax, d, h) {
 const keys = {};
 const joy = { x: 0, y: 0 };
 let jumpHeld = false, touchCrouch = false, crouchToggle = false;
+// Lean: me.lean eases toward -1 (left), 0 or 1 (right); leanOff is the sideways eye offset in meters after wall checks.
+let leanToggle = 0, touchLean = 0;
+const LEAN_DIST = .5, LEAN_ROLL = .2;
+function leanVec(a) { const off = a.leanOff || 0; return [Math.cos(a.yaw) * off, -Math.sin(a.yaw) * off]; }
+function eyePos(a) { const [lx, lz] = leanVec(a); return [a.x + lx, a.y + eyeH(a), a.z + lz]; }
+function updateLean(dt) {
+  let want = settings.leanMode === 'toggle' ? leanToggle : (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0);
+  if (touchLean) want = touchLean;
+  if (me.dead || Math.hypot(me.vx, me.vz) > 4.5) want = 0;           // no leaning while running
+  me.lean = (me.lean || 0) + (want - (me.lean || 0)) * Math.min(1, dt * 10);
+  // pull the lean back so the head never pokes through a wall
+  const c = [me.x, me.y + eyeH(me), me.z];
+  let off = me.lean * LEAN_DIST;
+  for (let k = 0; k < 4 && off; k++) {
+    const t = [c[0] + Math.cos(me.yaw) * off * 1.4, c[1], c[2] - Math.sin(me.yaw) * off * 1.4];
+    if (lineClear(c, t)) break;
+    off *= .5;
+  }
+  me.leanOff = Math.abs(off) < .01 ? 0 : off;
+}
 function updatePlayer(dt) {
   if (me.dead) return;
   me.protect = Math.max(0, me.protect - dt);
@@ -983,7 +1108,7 @@ function updatePlayer(dt) {
   else if (wantCrouch) me.crouch = true;
   const spd = (me.crouch ? 2.4 : aiming ? 3.2 : (keys.ShiftLeft ? 3 : 5.4)) * (weapon === 'knife' ? 1.15 : weapon === 'sniper' ? .92 : 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
-  const tvx = (-sy * fz + cy * fx) * spd, tvz = (-cy * fz - sy * fx) * spd;
+  const tvx = (-sy * fz + cy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1), tvz = (-cy * fz - sy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1);
   const k = Math.min(1, dt * (me.ground ? 12 : 3));
   me.vx += (tvx - me.vx) * k; me.vz += (tvz - me.vz) * k;
   me.vy -= 18 * dt;
@@ -994,6 +1119,7 @@ function updatePlayer(dt) {
   if (me.y <= 0) { me.y = 0; me.vy = 0; me.ground = true; }
   else if (hitY) { me.ground = me.vy < 0; me.vy = 0; } else me.ground = false;
   bob += Math.hypot(me.vx, me.vz) * dt * 1.6;
+  updateLean(dt);
   fireCd -= dt; switchT = Math.max(0, switchT - dt);
   spreadBoost = Math.max(0, spreadBoost - dt * .09);
   recoilP = Math.max(0, recoilP - dt * .25);
@@ -1030,7 +1156,7 @@ function currentSpread() {
 function shoot() {
   const w = WEAPONS[weapon];
   fireCd = w.rate;
-  const o = [me.x, me.y + eyeH(me), me.z];
+  const o = eyePos(me);
   if (w.melee) {
     vm.knifeT = .25;
     const hit = traceActors(o, aimDir(0), w.range, me);
@@ -1058,7 +1184,8 @@ function traceActors(o, d, maxT, shooter) {
   let best = null;
   for (const a of G.actors) {
     if (a === shooter || a.dead || a.team === shooter.team) continue;
-    const th = raySphere(o, d, [a.x, a.y + eyeH(a) + .02, a.z], HEAD_R);
+    const [lx, lz] = leanVec(a);
+    const th = raySphere(o, d, [a.x + lx, a.y + eyeH(a) + .02, a.z + lz], HEAD_R);
     if (th !== null && th < maxT && (!best || th < best.t)) best = { t: th, a, head: true };
     const tb = rayBox(o, d, { x0: a.x - .26, x1: a.x + .26, z0: a.z - .26, z1: a.z + .26, y0: a.y, y1: a.y + bodyTop(a) }, maxT);
     if (tb && tb.t > 0 && (!best || tb.t < best.t - .05)) best = { t: tb.t, a, head: false };
@@ -1134,8 +1261,8 @@ function dropPickup(a) {
   const box = meshAt(new THREE.BoxGeometry(.3, .16, .2), MAT.ammoBox, .25, .08, .2); g.add(box);
   const ring = new THREE.Mesh(new THREE.RingGeometry(.45, .55, 28), MAT.pickRing); ring.rotation.x = -Math.PI / 2; ring.position.y = .02; g.add(ring);
   g.traverse(o => { if (o.isMesh && o !== ring) o.castShadow = true; });
-  g.position.set(a.x, 0, a.z); scene.add(g);
-  PICKUPS.push({ x: a.x, z: a.z, t: 0, mesh: g, ring });
+  g.position.set(a.x, a.y, a.z); scene.add(g);
+  PICKUPS.push({ x: a.x, y: a.y, z: a.z, t: 0, mesh: g, ring });
 }
 function removePickup(i) { scene.remove(PICKUPS[i].mesh); PICKUPS.splice(i, 1); }
 function clearPickups() { while (PICKUPS.length) removePickup(0); }
@@ -1144,7 +1271,7 @@ function updatePickups(dt) {
     const p = PICKUPS[i]; p.t += dt;
     p.ring.material.opacity = .55 + .3 * Math.sin(p.t * 5);
     if (p.t > PICK_LIFE) { removePickup(i); continue; }
-    if (me.dead || Math.hypot(me.x - p.x, me.z - p.z) > 1.3 || me.y > 1) continue;
+    if (me.dead || Math.hypot(me.x - p.x, me.z - p.z) > 1.3 || Math.abs(me.y - p.y) > 1) continue;
     const got = [];
     const add = (k, n) => { const before = ammo[k].res; ammo[k].res = Math.min(MAX_RES[k], before + n); if (ammo[k].res > before) got.push(`${WEAPONS[k].n} +${ammo[k].res - before}`); };
     add(loadoutPrimary, loadoutPrimary === 'sniper' ? 10 : 60);
@@ -1167,12 +1294,14 @@ function botSees(a, t) {
   if (dist > 70) return false;
   const yawTo = Math.atan2(-dx, -dz);
   if (Math.abs(wrap(yawTo - a.yaw)) > 1.15 && dist > 6 && a.ai.target !== t) return false;
-  return lineClear(eye, [t.x, t.y + eyeH(t) - .05, t.z]) || lineClear(eye, [t.x, t.y + .9, t.z]);
+  const [lx, lz] = leanVec(t);
+  return lineClear(eye, [t.x + lx, t.y + eyeH(t) - .05, t.z + lz]) || lineClear(eye, [t.x, t.y + .9, t.z]);
 }
 function pickGoal(a) {
   const side = a.team === 'blue' ? 1 : -1, r = Math.random();
   const pool = POIS.filter(p => (r < .55 ? p[0] * side > -6 : Math.abs(p[0]) < 18));
   if (a.ai.lastSeen && Math.random() < .6) return a.ai.lastSeen.slice();
+  if (Math.random() < .2) return pick(POIS.filter(p => p[2] === 1));     // hold the second floor
   return pick(pool.length ? pool : POIS);
 }
 function updateBot(a, dt) {
@@ -1180,7 +1309,7 @@ function updateBot(a, dt) {
   if (a.dead) {
     ai.deathT += dt;
     const k = Math.min(1, ai.deathT / .45);
-    a.mesh.rotation.x = -k * Math.PI / 2; a.mesh.position.y = k * .15;
+    a.mesh.rotation.x = -k * Math.PI / 2; a.mesh.position.y = a.y + k * .15;
     if (ai.deathT > 2.2) a.mesh.visible = false;
     return;
   }
@@ -1196,7 +1325,7 @@ function updateBot(a, dt) {
     }
     if (best && best !== ai.target) { ai.seeT = 0; ai.burst = 0; ai.cool = .1; }
     ai.target = best;
-    if (best) { ai.lastSeen = [best.x, best.z]; best.spotted = 2; }
+    if (best) { ai.lastSeen = [best.x, best.z, layerOf(best.y)]; best.spotted = 2; }
   }
   let mvx = 0, mvz = 0;
   if (ai.target) {
@@ -1223,7 +1352,7 @@ function updateBot(a, dt) {
     a.crouch = false;
     ai.repath -= dt;
     if (!ai.goal || ai.repath <= 0 || !ai.path.length) {
-      ai.goal = pickGoal(a); ai.path = findPath(a.x, a.z, ai.goal[0], ai.goal[1]); ai.repath = 6 + Math.random() * 4;
+      ai.goal = pickGoal(a); ai.path = findPath(a.x, a.z, layerOf(a.y), ai.goal[0], ai.goal[1], ai.goal[2] || 0); ai.repath = 6 + Math.random() * 4;
       if (ai.lastSeen && Math.hypot(ai.lastSeen[0] - a.x, ai.lastSeen[1] - a.z) < 3) ai.lastSeen = null;
     }
     if (ai.path.length) {
@@ -1245,6 +1374,9 @@ function updateBot(a, dt) {
   a.vx = mvx; a.vz = mvz;
   const h = a.crouch ? 1.25 : 1.75;
   moveAxis(a, 'x', mvx * dt, h); moveAxis(a, 'z', mvz * dt, h);
+  a.vy = (a.vy || 0) - 18 * dt;
+  const landed = moveAxis(a, 'y', a.vy * dt, h);
+  if (a.y <= 0) { a.y = 0; a.vy = 0; } else if (landed) a.vy = 0;
   a.x = Math.max(-MX + .5, Math.min(MX - .5, a.x)); a.z = Math.max(-MZ + .5, Math.min(MZ - .5, a.z));
   // animate: walk cycle with knee bend, crouch lowers the body
   const sp = Math.hypot(mvx, mvz);
@@ -1257,13 +1389,14 @@ function updateBot(a, dt) {
   const hy = a.crouch ? .55 : .92 + Math.abs(Math.sin(a.walkT)) * .02;
   u.torso.position.y = hy; u.hipL.position.y = u.hipR.position.y = hy;
   u.torso.rotation.x = -a.pitch * .35;
-  a.mesh.position.set(a.x, 0, a.z); a.mesh.rotation.set(0, a.yaw, 0);
+  a.mesh.position.set(a.x, a.y, a.z); a.mesh.rotation.set(0, a.yaw, 0);
 }
 function botFire(a, t) {
   const D = DIFF[settings.diff];
   const o = [a.x, a.y + eyeH(a), a.z];
   const aimH = Math.random() < (settings.diff === 'hard' ? .22 : .12) ? eyeH(t) + .02 : 1.0 + Math.random() * .3;
-  let d = [t.x + (t.vx || 0) * .05 - o[0], t.y + aimH - o[1], t.z + (t.vz || 0) * .05 - o[2]];
+  const lk = aimH > 1.4 ? 1 : .5, [lx, lz] = leanVec(t);
+  let d = [t.x + lx * lk + (t.vx || 0) * .05 - o[0], t.y + aimH - o[1], t.z + lz * lk + (t.vz || 0) * .05 - o[2]];
   const l = Math.hypot(...d); d = d.map(v => v / l);
   const moving = Math.hypot(a.vx, a.vz) > .5 ? 1.5 : 1, tgtMove = t.isMe ? Math.min(1.6, 1 + Math.hypot(t.vx, t.vz) / 8) : 1;
   const s = D.spread * moving * tgtMove * (a.crouch ? .8 : 1);
@@ -1308,6 +1441,8 @@ function drawRadar() {
     c.fillStyle = a.team === 'blue' ? '#5b95f0' : '#ef5a4f';
     c.beginPath(); c.arc((a.x - me.x) * scale, (a.z - me.z) * scale, 6, 0, Math.PI * 2); c.fill();
   }
+  c.fillStyle = 'rgba(242,177,58,.9)'; c.font = 'bold 22px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (const [ch, x, z] of SIGNS) { c.save(); c.translate((x - me.x) * scale, (z - me.z) * scale); c.rotate(-me.yaw); c.fillText(ch, 0, 0); c.restore(); }
   c.restore();
   c.fillStyle = '#f2b13a';
   c.beginPath(); c.moveTo(R, R - 10); c.lineTo(R - 7, R + 8); c.lineTo(R + 7, R + 8); c.closePath(); c.fill();
@@ -1364,7 +1499,8 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Digit1') selectWeapon(sl[0]);
   if (e.code === 'Digit2') selectWeapon(sl[1]);
   if (e.code === 'Digit3') selectWeapon(sl[2]);
-  if (e.code === 'KeyQ') selectWeapon(prevWeapon);
+  if (e.code === 'KeyX') selectWeapon(prevWeapon);
+  if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
   if ((e.code === 'KeyC' || e.code === 'ControlLeft') && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle;
   if (e.code === 'KeyG' && nades > 0) { nades--; throwNade(me); }
@@ -1443,6 +1579,17 @@ $('tCrouch').addEventListener('pointerup', crouchUp); $('tCrouch').addEventListe
 $('tJump').addEventListener('pointerdown', e => { e.preventDefault(); jumpHeld = true; });
 $('tJump').addEventListener('pointerup', () => { jumpHeld = false; }); $('tJump').addEventListener('pointercancel', () => { jumpHeld = false; });
 $('tMenu').addEventListener('click', () => pauseGame());
+for (const [id, d] of [['tLeanL', -1], ['tLeanR', 1]]) {
+  const el = $(id);
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); if (!playing() || me.dead) return;
+    if (settings.leanMode === 'toggle') { leanToggle = leanToggle === d ? 0 : d; } else touchLean = d;
+    $('tLeanL').classList.toggle('on', (settings.leanMode === 'toggle' ? leanToggle : touchLean) === -1);
+    $('tLeanR').classList.toggle('on', (settings.leanMode === 'toggle' ? leanToggle : touchLean) === 1);
+  });
+  const up = () => { if (settings.leanMode !== 'toggle') { touchLean = 0; el.classList.remove('on'); } };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+}
 window.addEventListener('keydown', e => { if (e.code === 'Escape' && lockFallback && G.state === 'play') pauseGame(); });
 function requestLock() {
   if (touch || !canvas.requestPointerLock) return;
@@ -1464,6 +1611,8 @@ function settingsHtml(inMatch) {
       ${segHtml('aimMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
       <span class="lab">앉기 방식</span>
       ${segHtml('crouchMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
+      <span class="lab">기울이기 방식 (Q · E)</span>
+      ${segHtml('leanMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
       <div class="row"><label for="sens">마우스 감도</label><input id="sens" type="range" min="0.2" max="3" step="0.05" value="${settings.sens}"><output id="sensV">${settings.sens.toFixed(2)}</output></div>
       <div class="row"><label for="adsSens">조준 감도</label><input id="adsSens" type="range" min="0.2" max="2" step="0.05" value="${settings.adsSens}"><output id="adsSensV">${settings.adsSens.toFixed(2)}</output></div>
       <span class="lab">그래픽</span>
@@ -1491,7 +1640,8 @@ function controlsHtml() {
       <dt>왼쪽 클릭</dt><dd>발사</dd>
       <dt>오른쪽 클릭</dt><dd>정조준 (소총 레드닷, 저격총 스코프)</dd>
       <dt>R</dt><dd>재장전</dd>
-      <dt>1 2 3 · Q · 휠</dt><dd>주무기, 권총, 칼 · 이전 무기</dd>
+      <dt>1 2 3 · X · 휠</dt><dd>주무기, 권총, 칼 · 이전 무기</dd>
+      <dt>Q · E</dt><dd>왼쪽 · 오른쪽으로 기울이기</dd>
       <dt>G</dt><dd>수류탄</dd>
       <dt>Space · Ctrl/C</dt><dd>점프 · 앉기</dd>
       <dt>Tab</dt><dd>점수판</dd>
@@ -1569,6 +1719,7 @@ $('overlay').addEventListener('click', e => {
     if (s.dataset.set === 'quality') applyQuality();
     if (s.dataset.set === 'aimMode') setAim(false);
     if (s.dataset.set === 'crouchMode') { crouchToggle = false; touchCrouch = false; }
+    if (s.dataset.set === 'leanMode') { leanToggle = 0; touchLean = 0; }
     return;
   }
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -1612,8 +1763,9 @@ function render(dt) {
   if (G.state !== 'menu') {
     if (G.state !== 'pause') updateFx(dt);
     const dead = me.dead;
-    camera.position.set(me.x, me.y + (dead ? .4 : eyeH(me)) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z);
-    camera.rotation.set(me.pitch + recoilP * .3, me.yaw, dead ? .6 : 0);
+    const [lx, lz] = dead ? [0, 0] : leanVec(me);
+    camera.position.set(me.x + lx, me.y + (dead ? .4 : eyeH(me)) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
+    camera.rotation.set(me.pitch + recoilP * .3, me.yaw, dead ? .6 : -(me.leanOff || 0) / LEAN_DIST * LEAN_ROLL);
     const w = WEAPONS[weapon];
     const targetFov = aiming && !w.melee ? w.fov : 75;
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14);
@@ -1643,8 +1795,8 @@ function render(dt) {
     if (me) hud(dt);
   } else {
     const t = performance.now() / 1000 * .12;
-    camera.position.set(-12.6 + Math.sin(t) * .6, 2.2, -.4);
-    camera.rotation.set(-.06, -Math.PI / 2 + Math.sin(t * .6) * .35, 0);
+    camera.position.set(28 + Math.sin(t) * .5, 2.1, 18.8);
+    camera.rotation.set(-.05, Math.PI / 2 + Math.sin(t * .6) * .25, 0);
     camera.fov = 65; camera.updateProjectionMatrix();
     renderer.clear(); renderer.render(scene, camera);
   }
