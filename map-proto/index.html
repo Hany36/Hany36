@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>물류기지 맵 프로토타입</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="view" aria-label="3D 맵 화면"></canvas>
+
+<div class="hud" id="hud">
+  <div class="zone" id="zone"><b id="zoneName">-</b><span id="zoneSub"></span></div>
+  <canvas class="minimap" id="minimap" width="256" height="176" aria-label="미니맵"></canvas>
+  <div class="cross" aria-hidden="true"></div>
+  <div class="coords" id="coords"></div>
+  <div class="hint">WASD 이동 · Shift 달리기 · Space 점프 · R 리스폰 · M 미니맵 크게 · Esc 메뉴</div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="card">
+    <h1>물류기지 맵 프로토타입<small>INDUSTRIAL DEPOT · BLOCKOUT</small></h1>
+    <p id="status">불러오는 중…</p>
+    <div class="team" role="group" aria-label="시작 위치">
+      <button type="button" data-team="blue" aria-pressed="true">블루 스폰에서 시작</button>
+      <button type="button" data-team="red" aria-pressed="false">레드 스폰에서 시작</button>
+    </div>
+    <button type="button" class="start" id="startBtn" disabled>클릭해서 시작</button>
+    <dl class="keys">
+      <dt>W A S D</dt><dd>이동</dd>
+      <dt>마우스</dt><dd>시점 회전 (화면을 클릭하면 마우스가 고정돼요)</dd>
+      <dt>Shift</dt><dd>달리기</dd>
+      <dt>Space</dt><dd>점프</dd>
+      <dt>R</dt><dd>시작 위치로 리스폰</dd>
+      <dt>M</dt><dd>미니맵 크게 / 작게</dd>
+      <dt>Esc</dt><dd>마우스 고정 풀기 (이 화면으로 돌아와요)</dd>
+    </dl>
+  </div>
+</div>
+
+<script>
+  // Runs without modules so it can explain problems even when main.js never loads.
+  (function () {
+    var status = document.getElementById('status');
+    if (location.protocol === 'file:') {
+      status.className = 'err';
+      status.innerHTML = '브라우저는 파일을 직접 열 때(file://) 모듈 스크립트를 막아요.<br>이 폴더에서 <code>python3 -m http.server 8000</code>을 실행하고 <code>http://localhost:8000</code>으로 열어 주세요.';
+      return;
+    }
+    setTimeout(function () {
+      if (!window.__mapReady) {
+        status.className = 'err';
+        status.textContent = 'three.js를 불러오지 못했어요. 인터넷 연결(cdn.jsdelivr.net)을 확인하고 새로고침해 주세요.';
+      }
+    }, 10000);
+  })();
+</script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
