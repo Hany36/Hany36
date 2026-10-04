@@ -128,6 +128,7 @@ details { text-align: left; border-top: 1px solid var(--line); padding-top: 8px;
 summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted); }
 .btn { height: 50px; border: 0; border-radius: 10px; background: var(--amber); color: #111; font: 700 20px var(--font-body); box-shadow: 0 4px 0 #8f5e05; }
 .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #8f5e05; }
+.btn.reroll { height: 34px; font-size: 13px; box-shadow: none; border: 1px solid var(--line); }
 .btn.ghost { background: #2b3029; color: var(--ink); box-shadow: 0 4px 0 #0c0e0c; font-size: 15px; }
 .result { font: 700 42px/1 var(--font-num); }
 .result .b { color: var(--blue); } .result .r { color: var(--red); }
@@ -308,10 +309,12 @@ const DEPOT = {
     { name: 'B Link', ko: '중앙 건물 → B 연결로', x: [-14, 14], z: [10, 16], color: '#9b9b80' },
     { name: 'Blue Short Route', ko: '블루 쪽 실내 진입로 (짧은 길)', x: [-48, -16], z: [-36, -26], color: '#7f8fa8' },
     { name: 'Red Short Route', ko: '레드 쪽 실내 진입로 (짧은 길)', x: [16, 48], z: [-36, -26], color: '#a88580' },
-    { name: 'Blue Long Route', ko: '블루 쪽 야외 교전로 (긴 길)', x: [-50, -14], z: [13, 44], color: '#7f8fa8' },
-    { name: 'Red Long Route', ko: '레드 쪽 야외 교전로 (긴 길)', x: [14, 50], z: [13, 44], color: '#a88580' },
-    { name: 'Blue Mid', ko: '블루 쪽 중앙 통로', x: [-50, -12], z: [-26, 13], color: '#7f8fa8' },
-    { name: 'Red Mid', ko: '레드 쪽 중앙 통로', x: [12, 50], z: [-26, 13], color: '#a88580' },
+    { name: 'Blue B Link', ko: '블루 쪽 B 연결 통로', x: [-22, -14], z: [13, 44], color: '#7f8fa8' },
+    { name: 'Red B Link', ko: '레드 쪽 B 연결 통로', x: [14, 22], z: [13, 44], color: '#a88580' },
+    { name: 'Blue South Yard', ko: '블루 쪽 남쪽 창고 골목', x: [-50, -22], z: [9, 44], color: '#7f8fa8' },
+    { name: 'Red South Yard', ko: '레드 쪽 남쪽 창고 골목', x: [22, 50], z: [9, 44], color: '#a88580' },
+    { name: 'Blue North Yard', ko: '블루 쪽 북쪽 창고 골목', x: [-50, -12], z: [-26, 13], color: '#7f8fa8' },
+    { name: 'Red North Yard', ko: '레드 쪽 북쪽 창고 골목', x: [12, 50], z: [-26, 13], color: '#a88580' },
     { name: 'Blue Spawn', ko: '블루 팀 시작 지점 · 정비 구역', x: [-64, -48], z: [-44, 44], color: '#5b95f0' },
     { name: 'Red Spawn', ko: '레드 팀 시작 지점 · 하역 구역', x: [48, 64], z: [-44, 44], color: '#ef5a4f' },
   ],
@@ -387,8 +390,7 @@ const DEPOT = {
   west: {
     floors: [
       { x: [-64, -50], z: [-16, 16], color: 'blueFloor' },
-      { x: [-50, -12], z: [-26, 13], color: 'zoneMid', alpha: .25 },
-      { x: [-50, -14], z: [13, 44], color: 'zoneLong', alpha: .25 },
+
     ],
     decals: [],
     walls: [
@@ -420,7 +422,7 @@ const DEPOT = {
       { x: [-64, -58], z: [-31, -22], y: [0, 6], mat: 'warehouse' },
       { x: [-56, -53], z: [-24, -23.4], y: [0, 1.1], mat: 'barrier' },
       { x: [-64, -58], z: [22, 32], y: [0, 6], mat: 'warehouse' },
-      { x: [-52, -50.6], z: [27, 28.4], y: [0, 1.4], mat: 'crate' },
+      { x: [-55, -53.6], z: [36, 37.4], y: [0, 1.4], mat: 'crate' },
       // short route: the block north of the corridor, its roof, the sealed pocket, low crates
       { x: [-48, -16], z: [-44, -36], y: [0, 4.8], mat: 'block' },
       { x: [-48, -16], z: [-36, -26], y: [4.5, 4.8], mat: 'roof', kind: 'roof' },
@@ -432,37 +434,20 @@ const DEPOT = {
       // A warehouse pillars
       { x: [-8.4, -7.6], z: [-37.4, -36.6], y: [0, 9], mat: 'concrete' },
       { x: [-8.4, -7.6], z: [-25.4, -24.6], y: [0, 9], mat: 'concrete' },
-      // mid: solid buildings leave three corridors -- north (spawn -> A link / catwalk), center (-> hall 1F door),
-      // south (spawn -> B link / balcony) -- joined by a short north-south link at x -34..-30
-      { x: [-46, -22], z: [-25.75, -15], y: [0, 6], mat: 'warehouse' },
-      { x: [-49.75, -34], z: [-9, 7], y: [0, 6], mat: 'block' },
-      { x: [-30, -12.25], z: [-9, -3], y: [0, 6], mat: 'hall' },
-      { x: [-30, -12.25], z: [1, 7], y: [0, 6], mat: 'hall' },
-      { x: [-36, -34.6], z: [-15, -13.6], y: [0, 2], mat: 'crate' },
-      { x: [-35.8, -34.8], z: [-14.8, -13.8], y: [2, 2.9], mat: 'crate' },
-      { x: [-27, -24], z: [-10.2, -9.6], y: [0, 1.1], mat: 'barrier' },
-      { x: [-22, -20.8], z: [-3, -1.8], y: [0, 1.2], mat: 'crate' },
-      { x: [-42, -40.6], z: [7, 8.4], y: [0, 1.2], mat: 'crate' },
-      { x: [-28, -25], z: [12.15, 12.75], y: [0, 1.1], mat: 'barrier' },
-      { x: [-21, -19.6], z: [-25.5, -24.1], y: [0, 1.4], mat: 'crate' },
-      { x: [-21, -19.6], z: [-25.5, -24.1], y: [1.4, 2.8], mat: 'crate' },
+      // mid: the area between the spawn and the hall is a generated maze (buildDepotMaze); east of it, fixed blocks
+      // leave a passage to the hall's 1F door (z -3..1)
+      { x: [-22, -12.25], z: [-9, -3], y: [0, 6], mat: 'hall' },
+      { x: [-22, -12.25], z: [1, 7], y: [0, 6], mat: 'hall' },
+      { x: [-17.5, -16.1], z: [-24.5, -23.1], y: [0, 1.4], mat: 'crate' },
+      { x: [-17.5, -16.1], z: [-24.5, -23.1], y: [1.4, 2.8], mat: 'crate' },
       // central hall: inner stair rail, 1F crates, balcony and catwalk supports
       { x: [-11.75, -3.5], z: [-9.75, -9.6], y: [4, 5], mat: 'rail' },
       { x: [-8, -6.5], z: [3, 4.5], y: [0, 1.2], mat: 'crate' },
       { x: [-6.15, -5.85], z: [12.5, 12.8], y: [0, 3.7], mat: 'metal' },
       { x: [-6.15, -5.85], z: [-14.8, -14.5], y: [0, 3.7], mat: 'metal' },
-      // long route: a big storage building, a north-south B link corridor at x -23..-14, and a 10 m alley along
-      // the south wall with containers zig-zagging from both sides; pipe rack collider along the south wall
-      { x: [-50, -23], z: [13, 32], y: [0, 6], mat: 'block' },
-      { x: [-20, -17.5], z: [19, 25], y: [0, 2.6], mat: 'contRust', kind: 'container' },
-      { x: [-44, -38], z: [32, 34.5], y: [0, 2.6], mat: 'contOchre', kind: 'container' },
-      { x: [-36, -30], z: [39.8, 42.3], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
-      { x: [-28, -22], z: [32, 34.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
-      { x: [-28, -22], z: [32, 34.5], y: [2.6, 5.2], mat: 'contOchre', kind: 'container' },
-      { x: [-41, -38], z: [37.5, 38.1], y: [0, 1.1], mat: 'barrier' },
-      { x: [-20, -18.8], z: [38, 39.2], y: [0, .25], mat: 'pallet' },
-      { x: [-19.9, -18.9], z: [38.1, 39.1], y: [.25, 1.25], mat: 'crate' },
-      { x: [-50, -16], z: [42.3, 43.7], y: [0, 2], mat: 'pipe', hidden: true },
+      // B link: a north-south passage at x -22..-14 between the maze and B's west wall, broken up by two blocks
+      { x: [-19, -14.25], z: [24.5, 27.5], y: [0, 5], mat: 'warehouse' },
+      { x: [-22, -18], z: [35, 37.5], y: [0, 2.6], mat: 'contRust', kind: 'container' },
       // B site: side container, flank wall of containers (gaps at x -8..-6 and -1.2..1.2), barrier
       { x: [-12, -6], z: [26, 28.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
       { x: [-14, -8], z: [39, 41.5], y: [0, 2.6], mat: 'contGray', kind: 'container' },
@@ -476,10 +461,7 @@ const DEPOT = {
       { x: [-20, -12], z: [10.5, 12.5], rise: 4, steps: 16, dir: '+x', mat: 'concreteDark' },       // up to the south balcony
       { x: [-20, -12], z: [-14.75, -12.75], rise: 4, steps: 16, dir: '+x', mat: 'concreteDark' },   // up to the north catwalk
     ],
-    pipes: [
-      { from: [-50, .6, 42.7], to: [-16, .6, 42.7], r: .35 },
-      { from: [-50, 1.5, 43.3], to: [-16, 1.5, 43.3], r: .3 },
-    ],
+    pipes: [],
     tanks: [
       { x: -9.5, z: 33, r: 1.2, h: 3.2 },
     ],
@@ -487,7 +469,6 @@ const DEPOT = {
       { text: 'BLUE SPAWN', sub: '← A        B →', pos: [-50.3, 3, 0], ry: -Math.PI / 2, w: 6, h: 1.6, bg: '#3a5d90', fg: '#ffffff' },
       { text: 'SHORT ROUTE', sub: '→ A', pos: [-48.3, 3.7, -28.5], ry: -Math.PI / 2, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
       { text: 'A', sub: '→', pos: [-16.3, 3.9, -33.5], ry: -Math.PI / 2, w: 1.6, h: 1.2, bg: '#d9a92b', fg: '#1b1b1b' },
-      { text: 'LONG ROUTE', sub: '→ B', pos: [-36, 2.8, 32.05], ry: 0, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
       { text: 'B SITE', sub: 'UTILITY YARD', pos: [-3.6, 4, 38.9], ry: Math.PI, w: 4.2, h: 1.5, bg: '#d9772b', fg: '#1b1b1b' },
       { text: 'CENTRAL HALL', sub: '1F', pos: [-12.3, 3.6, -1], ry: -Math.PI / 2, w: 4.6, h: 1, bg: '#e6e0d0', fg: '#262626' },
     ],
@@ -499,6 +480,88 @@ const DEPOT = {
     ],
   },
 };
+
+// ---- generated maze between the Blue spawn and the hall (mirrored to Red, so both sides stay identical)
+// A 5 x 12 grid of small yards (x -50..-22, z -26..44). A random spanning tree links them through doors at random
+// spots along each wall, a few extra doors add loops, some yards are filled in as buildings and some walls are
+// containers. Doors on the outer edge are fixed so the spawn exits, the short route, A, the hall and B always connect.
+const DEPOT_SEED = (() => { const m = /seed=(\d+)/.exec(location.hash); return m ? +m[1] : 1 + Math.floor(Math.random() * 99999); })();
+function buildDepotMaze(seed) {
+  let st = seed >>> 0;
+  const rnd = () => { st = (st + 0x6D2B79F5) >>> 0; let t = st; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const X0 = -50, X1 = -22, Z0 = -26, Z1 = 44, NI = 5, NJ = 12, CW = (X1 - X0) / NI, CH = (Z1 - Z0) / NJ, H = 4.6;
+  const cx = i => X0 + i * CW, cz = j => Z0 + j * CH;
+  const W = DEPOT.west.walls, B = DEPOT.west.boxes;
+  const WALLMATS = ['concrete', 'warehouse', 'block', 'hall', 'concrete', 'warehouse'];
+  const CONTS = ['contRust', 'contBlue', 'contGreen', 'contOchre', 'contGray'];
+  // doors sit at random spots, but never in line with the door of the previous wall on the same row/column,
+  // so no straight sightline runs through more than two yards
+  const lastDoor = new Map();
+  const door = (key, a0, a1, w = 2) => {
+    const prev = lastDoor.get(key), m = (a0 + a1) / 2;
+    // after a door near one end, the next door on the same line goes near the other end
+    const side = prev ? ((prev[0] + prev[1]) / 2 < m ? 1 : 0) : (rnd() < .5 ? 0 : 1);
+    const p = side === 0 ? a0 + .35 + rnd() * .6 : a1 - .35 - w - rnd() * .6;
+    lastDoor.set(key, [p, p + w]);
+    return [p, p + w, 0, H + 1];
+  };
+  // solid yards (never in the edge columns, which hold the fixed doors), then check that the rest stays connected
+  const solid = new Uint8Array(NI * NJ), id = (i, j) => j * NI + i;
+  for (let j = 0; j < NJ; j++) for (let i = 1; i < NI - 1; i++) if (rnd() < .14) solid[id(i, j)] = 1;
+  const edges = [];
+  for (let j = 0; j < NJ; j++) for (let i = 0; i < NI; i++) { if (i < NI - 1) edges.push([i, j, i + 1, j]); if (j < NJ - 1) edges.push([i, j, i, j + 1]); }
+  for (let k = edges.length - 1; k > 0; k--) { const r = Math.floor(rnd() * (k + 1)); [edges[k], edges[r]] = [edges[r], edges[k]]; }
+  const parent = Array.from({ length: NI * NJ }, (_, k) => k), find = k => (parent[k] === k ? k : (parent[k] = find(parent[k])));
+  const open = new Set();
+  for (const e of edges) {
+    const a = id(e[0], e[1]), b = id(e[2], e[3]);
+    if (solid[a] || solid[b]) continue;
+    if (find(a) !== find(b)) { parent[find(a)] = find(b); open.add(e.join()); }
+    else if (rnd() < .2) open.add(e.join());                    // extra loop
+  }
+  // un-solid any yard that would cut the maze apart (all open yards must share one root)
+  const roots = new Set(); for (let k = 0; k < NI * NJ; k++) if (!solid[k]) roots.add(find(k));
+  if (roots.size > 1) return buildDepotMaze(seed + 1);
+  // keep it playable: from each spawn exit, A/hall and B must be reachable within a few yards (else try the next seed)
+  const adj = k => { const i = k % NI, j = (k / NI) | 0, out = []; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const i2 = i + di, j2 = j + dj; if (i2 < 0 || j2 < 0 || i2 >= NI || j2 >= NJ) continue; const e = di + dj > 0 ? [i, j, i2, j2] : [i2, j2, i, j]; if (open.has(e.join())) out.push(id(i2, j2)); } return out; };
+  const steps = from => { const d = new Array(NI * NJ).fill(99); d[from] = 0; const q = [from]; while (q.length) { const k = q.shift(); for (const m of adj(k)) if (d[m] > d[k] + 1) { d[m] = d[k] + 1; q.push(m); } } return d; };
+  const dA = steps(id(0, 2)), dB = steps(id(0, 6)), best = cells => Math.min(...cells.map(c => Math.min(dA[c], dB[c])));
+  const far = best([id(4, 6), id(4, 7), id(4, 9)]) > 6 || best([id(4, 0), id(4, 2), id(4, 4)]) > 6;
+  if (far && seed < DEPOT_SEED + 200) return buildDepotMaze(seed + 1);
+  // outer edge: west (spawn side) and east (hall / B link side) with fixed doors per row
+  const mid = j => (cz(j) + cz(j + 1)) / 2, fixed = (j, w = 3.2) => [mid(j) - w / 2, mid(j) + w / 2, 0, H + 1];
+  W.push({ axis: 'x', at: X0, from: Z0, to: -16, h: H, mat: 'warehouse', open: [fixed(0)] });
+  W.push({ axis: 'x', at: X0, from: 16, to: Z1, h: H, mat: 'warehouse', open: [fixed(8), fixed(10)] });
+  W.push({ axis: 'x', at: X1, from: Z0, to: Z1, h: H, mat: 'concrete', t: .6,
+    open: [fixed(0), [-12.6, -9.4, 0, H + 1], [-2.4, 1, 0, H + 1], fixed(6), fixed(7), fixed(9), fixed(11)] });
+  // inner walls: one per edge between yards, with a door if open; a closed wall is sometimes a container stack
+  edges.sort((p2, q2) => (p2[1] - q2[1]) * 100 + (p2[0] - q2[0]) || (p2[2] - q2[2]));
+  for (const e of edges) {
+    const [i, j, i2, j2] = e, a = id(i, j), b = id(i2, j2), isOpen = open.has(e.join());
+    if (solid[a] && solid[b]) continue;
+    const vertical = i2 !== i;                                  // wall between columns runs along z
+    const at = vertical ? cx(i2) : cz(j2), from = vertical ? cz(j) : cx(i), to = vertical ? cz(j + 1) : cx(i + 1);
+    const mat = WALLMATS[Math.floor(rnd() * WALLMATS.length)];
+    if (!isOpen && !solid[a] && !solid[b] && rnd() < .28) {
+      const c = CONTS[Math.floor(rnd() * CONTS.length)], two = rnd() < .45;
+      const box = vertical ? { x: [at - 1.22, at + 1.22], z: [from + .05, to - .05] } : { x: [from + .05, to - .05], z: [at - 1.22, at + 1.22] };
+      B.push({ ...box, y: [0, 2.6], mat: c, kind: 'container' });
+      if (two) B.push({ ...box, y: [2.6, 5.2], mat: CONTS[Math.floor(rnd() * CONTS.length)], kind: 'container' });
+      continue;
+    }
+    W.push({ axis: vertical ? 'x' : 'z', at, from, to, h: H, mat, t: .5, open: isOpen ? [door(vertical ? 'r' + j : 'c' + i, from, to)] : [] });
+  }
+  // solid yards become buildings; open yards get a piece of cover near the middle
+  for (let j = 0; j < NJ; j++) for (let i = 0; i < NI; i++) {
+    const x0 = cx(i), x1 = cx(i + 1), z0 = cz(j), z1 = cz(j + 1);
+    if (solid[id(i, j)]) { B.push({ x: [x0, x1], z: [z0, z1], y: [0, 5.5 + rnd() * 2], mat: WALLMATS[Math.floor(rnd() * 4)] }); continue; }
+    const r = rnd(), mx = (x0 + x1) / 2 + (rnd() - .5) * 1.2, mz = (z0 + z1) / 2 + (rnd() - .5) * 1.2;
+    if (r < .3) B.push({ x: [mx - .6, mx + .6], z: [mz - .6, mz + .6], y: [0, 1.2], mat: 'crate' });
+    else if (r < .45) { B.push({ x: [mx - .6, mx + .6], z: [mz - .6, mz + .6], y: [0, 1.2], mat: 'crate' }); B.push({ x: [mx - .5, mx + .5], z: [mz - .5, mz + .5], y: [1.2, 2.2], mat: 'crate' }); }
+    else if (r < .65) { const along = rnd() < .5; B.push(along ? { x: [mx - 1.3, mx + 1.3], z: [mz - .3, mz + .3], y: [0, 1.1], mat: 'barrier' } : { x: [mx - .3, mx + .3], z: [mz - 1.3, mz + 1.3], y: [0, 1.1], mat: 'barrier' }); }
+  }
+}
+buildDepotMaze(DEPOT_SEED);
 
 // =====================================================================================
 // mirroring (Blue half -> Red half)
@@ -798,7 +861,7 @@ const WEAPONS = {
   pistol: { n: '권총', mag: 12, res: 48, rate: .16, auto: false, dmg: 34, head: 3, spread: .016, aimSpread: .005, kick: .02, reload: 1.5, range: 80, fov: 62, snd: .7, adsY: -.07, adsZ: -.3 },
   sniper: { mob: .92, n: '저격총', mag: 5, res: 20, rate: 1.25, auto: false, dmg: 110, head: 2, spread: .09, aimSpread: 0, kick: .05, reload: 2.8, range: 200, fov: 16, scope: true, snd: 1.6 },
   smg:    { mob: 1.08, moveK: .5, n: '기관단총', mag: 32, res: 160, rate: .066, auto: true, dmg: 19, head: 3, spread: .016, aimSpread: .006, kick: .006, reload: 1.7, range: 70, fov: 60, snd: .75, adsY: -.073, adsZ: -.3 },
-  shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 15, pellets: 9, falloff: true, head: 1.6, spread: .055, aimSpread: .042, kick: .045, reload: 2.6, range: 32, fov: 64, snd: 1.4, adsY: -.07, adsZ: -.34 },
+  shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 23, pellets: 9, falloff: true, head: 1.6, spread: .033, aimSpread: .024, kick: .045, reload: 2.6, range: 40, fov: 64, snd: 1.4, adsY: -.07, adsZ: -.34 },
   revolver: { n: '리볼버', mag: 6, res: 30, rate: .42, auto: false, dmg: 52, head: 2.6, spread: .012, aimSpread: .003, kick: .055, reload: 2.2, range: 90, fov: 60, snd: 1.15, adsY: -.072, adsZ: -.3 },
   knife:  { n: '칼', melee: true, rate: .45, dmg: 55, range: 1.9 },
 };
@@ -1033,6 +1096,7 @@ function initThree() {
   mats.paintB = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0x6f8fc8, roughness: .85 });
   mats.paintR = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0xc87a70, roughness: .85 });
   mats.contY = std({ map: TEX.contG, bumpMap: TEX.contG, bumpScale: .025, color: 0xe8c070, roughness: .55, metalness: .3 });
+  const byMat = {};
   for (const b of BOXES) {
     if (!b.vis) continue;
     if (b.mat === 'railing') {    // pipe railing: top rail, mid rail and posts; the box stays as the collider
@@ -1049,10 +1113,24 @@ function initThree() {
       continue;
     }
     const sx = b.x1 - b.x0, sy = b.y1 - b.y0, sz = b.z1 - b.z0;
-    const m = new THREE.Mesh(boxGeometry(sx, sy, sz, TEX[b.mat] ? TEX[b.mat].tileSize : 2), mats[b.mat]);
-    m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
-    m.castShadow = true; m.receiveShadow = true;
-    scene.add(m);
+    const g = boxGeometry(sx, sy, sz, TEX[b.mat] ? TEX[b.mat].tileSize : 2);
+    g.translate((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
+    (byMat[b.mat] = byMat[b.mat] || []).push(g);
+  }
+  // one merged mesh per material: hundreds of boxes become a handful of draw calls
+  for (const k in byMat) {
+    const gs = byMat[k], n = gs.reduce((t, g) => t + g.attributes.position.count, 0), ni = gs.reduce((t, g) => t + g.index.count, 0);
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2), idx = new Uint32Array(ni);
+    let v = 0, q = 0;
+    for (const g of gs) {
+      pos.set(g.attributes.position.array, v * 3); nor.set(g.attributes.normal.array, v * 3); uv.set(g.attributes.uv.array, v * 2);
+      const src = g.index.array; for (let i = 0; i < src.length; i++) idx[q + i] = src[i] + v;
+      v += g.attributes.position.count; q += src.length; g.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1)); geo.computeBoundingSphere();
+    const m = new THREE.Mesh(geo, mats[k]); m.castShadow = true; m.receiveShadow = true; scene.add(m);
   }
   // ground: asphalt outside, painted concrete inside
   const plane = (x0, z0, x1, z1, tex, mat, y = 0) => {
@@ -1434,8 +1512,7 @@ function sfx(kind, vol = 1) {
 }
 
 // =============== match-end music (synthesized brass, strings and drums) ===============
-// Victory: snare roll, a brass fanfare call, then a big C major hit and the bVI-bVII-I cadence (Ab - Bb - C)
-// with timpani and a cymbal crash. Defeat: slow minor brass over low strings. All of it runs through a
+// Victory: two heavy low brass blasts ("DUN ... DUN") over deep drums and timpani. Defeat: slow minor brass over low strings. All of it runs through a
 // hall reverb into MASTER, so the volume setting applies.
 let musicBus = null, reverbBuf = null;
 const NOTE = n => 440 * Math.pow(2, (n - 69) / 12);          // MIDI note -> Hz
@@ -1458,21 +1535,35 @@ function makeMusicBus(level) {
   musicBus = bus;
   return bus;
 }
-// brass section voice: detuned saws through a filter that opens on the attack ("blat") and settles
+// brass section voice: a cloud of detuned saws (several players), each scooping up into pitch on the attack,
+// a filter that swells open with the breath, a body resonance around 600 Hz, a little breath noise and soft
+// tape-like saturation -- so it reads as a horn section rather than a synth
+let satCurve = null;
 function brass(bus, midi, t0, dur, vel = 1) {
   const f = NOTE(midi), end = t0 + dur;
-  const flt = AC.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = 1.2;
-  flt.frequency.setValueAtTime(300, t0); flt.frequency.exponentialRampToValueAtTime(Math.min(5200, f * 9), t0 + .07); flt.frequency.exponentialRampToValueAtTime(Math.min(3000, f * 5), t0 + .35);
+  if (!satCurve) { satCurve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; satCurve[i] = Math.tanh(x * 2.2) / Math.tanh(2.2); } }
+  const flt = AC.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = .7;
+  flt.frequency.setValueAtTime(Math.max(120, f * 1.2), t0);
+  flt.frequency.exponentialRampToValueAtTime(Math.min(4200, f * 7 * (.6 + .4 * vel)), t0 + .16);
+  flt.frequency.exponentialRampToValueAtTime(Math.min(2600, f * 4.5), t0 + .6);
+  const body = AC.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 620; body.Q.value = 1.1; body.gain.value = 5;
+  const sat = AC.createWaveShaper(); sat.curve = satCurve;
   const g = AC.createGain();
-  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(.09 * vel, t0 + .06); g.gain.exponentialRampToValueAtTime(.065 * vel, t0 + .3);
-  g.gain.setValueAtTime(.065 * vel, Math.max(t0 + .3, end - .12)); g.gain.exponentialRampToValueAtTime(.0001, end + .35);
-  const lfo = AC.createOscillator(), lg = AC.createGain(); lfo.frequency.value = 5.2; lg.gain.setValueAtTime(0, t0); lg.gain.linearRampToValueAtTime(dur > .6 ? 6 : 0, t0 + .5);
-  lfo.connect(lg); lfo.start(t0); lfo.stop(end + .4);
-  for (const det of [-9, 0, 8]) {
-    const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
-    lg.connect(o.detune); o.connect(flt); o.start(t0); o.stop(end + .4);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(.075 * vel, t0 + .09); g.gain.exponentialRampToValueAtTime(.055 * vel, t0 + .45);
+  g.gain.setValueAtTime(.055 * vel, Math.max(t0 + .45, end - .15)); g.gain.exponentialRampToValueAtTime(.0001, end + .5);
+  for (const [det, delay] of [[-14, .012], [-6, 0], [0, .02], [7, .006], [15, .016]]) {
+    const o = AC.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f * .955, t0 + delay); o.frequency.exponentialRampToValueAtTime(f, t0 + delay + .09);   // lip scoop
+    o.detune.value = det;
+    const og = AC.createGain(); og.gain.value = .22; o.connect(og); og.connect(flt);
+    o.start(t0 + delay); o.stop(end + .6);
   }
-  flt.connect(g); g.connect(bus);
+  // breath: band-passed noise riding the attack
+  const br = AC.createBufferSource(); br.buffer = noiseBuf; br.loop = true;
+  const bf = AC.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = Math.min(3000, f * 3); bf.Q.value = 1.5;
+  const bg = AC.createGain(); bg.gain.setValueAtTime(.0001, t0); bg.gain.exponentialRampToValueAtTime(.025 * vel, t0 + .05); bg.gain.exponentialRampToValueAtTime(.004 * vel, t0 + .4); bg.gain.exponentialRampToValueAtTime(.0001, end + .3);
+  br.connect(bf); bf.connect(bg); bg.connect(body); br.start(t0); br.stop(end + .4);
+  flt.connect(body); body.connect(sat); sat.connect(g); g.connect(bus);
 }
 // low strings pad: slow attack, darker filter
 function strings(bus, midi, t0, dur, vel = 1) {
@@ -1494,29 +1585,29 @@ function noiseHit(bus, t0, type, freq, dur, vel) {
   const g = AC.createGain(); g.gain.setValueAtTime(vel, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
   src.connect(flt); flt.connect(g); g.connect(bus); src.start(t0, Math.random() * .2); src.stop(t0 + dur + .02);
 }
+function boomDrum(bus, t0, vel = 1) {
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(95, t0); o.frequency.exponentialRampToValueAtTime(38, t0 + .35);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(.9 * vel, t0 + .01); g.gain.exponentialRampToValueAtTime(.0001, t0 + 1.1);
+  o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + 1.2);
+}
 const snare = (bus, t0, vel) => { noiseHit(bus, t0, 'bandpass', 2400, .13, .32 * vel); noiseHit(bus, t0, 'lowpass', 400, .06, .2 * vel); };
 const crash = (bus, t0, vel = 1) => noiseHit(bus, t0, 'highpass', 5500, 2.2, .13 * vel);
 function chord(bus, notes, t0, dur, vel) { for (const n of notes) brass(bus, n, t0, dur, vel); }
 function endMusic(kind, vol) {
-  const bus = makeMusicBus(vol * (kind === 'win' ? 1.1 : 1.9)), t = AC.currentTime + .05;
+  const bus = makeMusicBus(vol * (kind === 'win' ? .85 : 1.9)), t = AC.currentTime + .05;
   if (kind === 'win') {
-    // snare roll crescendo into the fanfare (tempo 120: one beat = .5 s)
-    for (let i = 0; i < 16; i++) snare(bus, t + i * .0625, .25 + i / 16 * .75);
-    timpani(bus, 43, t, .5); timpani(bus, 43, t + .5, .7);
-    // call: G G G (triplet) - C ... G C | E (held)
-    const call = [[67, 1.0, .16], [67, 1.167, .16], [67, 1.333, .16], [72, 1.5, .45], [67, 2.0, .22], [72, 2.25, .22]];
-    for (const [n, at, d] of call) { brass(bus, n, t + at, d, 1); brass(bus, n - 12, t + at, d, .6); snare(bus, t + at, .6); }
-    // big C major hit
-    const T1 = t + 2.5;
-    chord(bus, [48, 60, 64, 67, 76], T1, 1.0, 1); strings(bus, 36, T1, 1.0); timpani(bus, 36, T1, 1); crash(bus, T1);
-    // Ab - Bb - C cadence, then the final held chord
-    chord(bus, [44, 60, 63, 68, 72], T1 + 1.0, .5, .95); timpani(bus, 44, T1 + 1.0, .7); snare(bus, T1 + 1.0, .7);
-    chord(bus, [46, 62, 65, 70, 74], T1 + 1.5, .5, .95); timpani(bus, 46, T1 + 1.5, .8); snare(bus, T1 + 1.5, .8); snare(bus, T1 + 1.75, .6);
-    const T2 = T1 + 2.0;
-    chord(bus, [36, 48, 60, 64, 67, 72, 79], T2, 2.6, 1.05); strings(bus, 36, T2, 2.6, 1.2); strings(bus, 43, T2, 2.6);
-    timpani(bus, 36, T2, 1); crash(bus, T2, 1.2);
-    for (let i = 0; i < 12; i++) timpani(bus, 36, T2 + 1.6 + i * .07, .15 + i * .03);   // timpani roll to the end
-    timpani(bus, 36, T2 + 2.5, 1);
+    // two heavy low brass blasts, "DUN ... DUN": an open fifth, then the same chord a step higher with the third,
+    // each with a deep drum and timpani; about 3.5 s with the hall tail, more weight than celebration
+    const hit = (at, notes, dur, v) => {
+      for (const n of notes) brass(bus, n, t + at, dur, v);
+      timpani(bus, notes[0], t + at, 1); boomDrum(bus, t + at, 1);
+      noiseHit(bus, t + at, 'lowpass', 900, .5, .12);
+    };
+    hit(0, [36, 43, 48, 55], .55, 1.1);                 // C2 G2 C3 G3
+    hit(.85, [36, 43, 48, 52, 55, 60], 1.9, 1.15);      // C2 G2 C3 E3 G3 C4, held and fading
+    strings(bus, 24, t + .85, 1.9, 1.3);
+    crash(bus, t + .85, .5);
   } else if (kind === 'lose') {
     // slow C minor lament: low strings, muted brass falling line, soft timpani
     strings(bus, 36, t, 1.6); strings(bus, 43, t, 1.6); timpani(bus, 36, t, .6);
@@ -1541,7 +1632,7 @@ function newActor(team, name, isMe) {
   if (!isMe) {
     a.mesh = soldier(team); scene.add(a.mesh);
     if (team === 'blue') a.mesh.add(allyMarker());
-    a.ai = { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, strafe: 0, strafeT: 0, look: 0, lastSeen: null, think: Math.random() * .2, deathT: 0 };
+    a.ai = { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, strafe: 0, strafeT: 0, look: 0, lastSeen: null, think: Math.random() * .2, deathT: 0, stuckT: 0, stuckN: 0, unstickT: 0, blockT: 0 };
   }
   G.actors.push(a);
   return a;
@@ -1561,7 +1652,7 @@ function spawnActor(a) {
   if (a.isMe) resetLoadout();
   else {
     a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.mesh.position.set(a.x, 0, a.z); a.vy = 0;
-    Object.assign(a.ai, { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, lastSeen: null });
+    Object.assign(a.ai, { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, lastSeen: null, chase: null, stuckT: 0, stuckN: 0, unstickT: 0, blockT: 0 });
     a.hp = a.team === 'red' ? DIFF[settings.diff].hp : 100;
   }
 }
@@ -1772,25 +1863,66 @@ function muzzleOf(a) {
   const s = Math.sin(a.yaw), c = Math.cos(a.yaw);
   return [a.x - s * .95 + c * .06, a.y + (a.crouch ? .95 : 1.34), a.z - c * .95 - s * .06];
 }
-function throwNade(a) {
+// launch state of a grenade thrown by actor a (position and velocity)
+function nadeLaunch(a) {
   const cp = Math.cos(a.pitch + .25);
   const d = [-Math.sin(a.yaw) * cp, Math.sin(a.pitch + .25), -Math.cos(a.yaw) * cp];
+  return { x: a.x + d[0] * .5, y: a.y + eyeH(a) - .1, z: a.z + d[2] * .5, vx: d[0] * 15 + (a.vx || 0), vy: d[1] * 15 + 1.5, vz: d[2] * 15 + (a.vz || 0), t: 0 };
+}
+function throwNade(a) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(.07, 10, 8), std({ color: 0x4a5634, roughness: .6 }));
   mesh.castShadow = true;
-  const p = { x: a.x + d[0] * .5, y: a.y + eyeH(a) - .1, z: a.z + d[2] * .5, vx: d[0] * 15 + a.vx, vy: d[1] * 15 + 1.5, vz: d[2] * 15 + a.vz, t: 0, owner: a, mesh };
+  const p = Object.assign(nadeLaunch(a), { owner: a, mesh });
   mesh.position.set(p.x, p.y, p.z); scene.add(mesh); G.nades.push(p);
+}
+// one physics step: gravity, then per-axis moves that bounce off the ground and boxes
+// (shared by the thrown grenade and the aiming preview, so the preview shows exactly where it goes)
+function nadeStep(p, dt) {
+  p.vy -= 14 * dt;
+  for (const ax of ['x', 'y', 'z']) {
+    const v = 'v' + ax, prev = p[ax]; p[ax] += p[v] * dt;
+    let hit = p.y < .07;
+    if (!hit) for (const b of BOXES) if (p.x > b.x0 - .07 && p.x < b.x1 + .07 && p.y > b.y0 - .07 && p.y < b.y1 + .07 && p.z > b.z0 - .07 && p.z < b.z1 + .07) { hit = true; break; }
+    if (hit) { p[ax] = prev; p[v] *= -.35; if (ax === 'y') { p.vx *= .7; p.vz *= .7; } }
+  }
+  p.y = Math.max(.07, p.y);
+}
+// ---- grenade aiming: hold G (or the touch button) to see the arc and the blast spot, release to throw
+let nadeAim = false, nadeArc = null, nadeRing = null;
+const ARC_PTS = 70;
+function startNadeAim() { if (nades > 0 && playing() && !me.dead) nadeAim = true; }
+function cancelNadeAim() { nadeAim = false; if (nadeArc) { nadeArc.visible = false; nadeRing.visible = false; } }
+function releaseNadeAim() {
+  if (!nadeAim) return;
+  cancelNadeAim();
+  if (nades > 0 && playing() && !me.dead) { nades--; throwNade(me); }
+}
+function updateNadeArc() {
+  if (!nadeArc) {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_PTS * 3), 3));
+    nadeArc = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xffd25a, dashSize: .25, gapSize: .15, transparent: true, opacity: .9, depthTest: false }));
+    nadeArc.renderOrder = 5; nadeArc.frustumCulled = false; scene.add(nadeArc);
+    nadeRing = new THREE.Mesh(new THREE.RingGeometry(NADE.radius * .92, NADE.radius, 40), new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: .55, side: THREE.DoubleSide, depthTest: false }));
+    nadeRing.rotation.x = -Math.PI / 2; nadeRing.renderOrder = 5; scene.add(nadeRing);
+  }
+  const show = nadeAim && playing() && !me.dead && nades > 0;
+  nadeArc.visible = nadeRing.visible = show;
+  if (!show) return;
+  const p = nadeLaunch(me), pos = nadeArc.geometry.attributes.position.array, steps = Math.round(NADE.fuse * 60), per = Math.ceil(steps / (ARC_PTS - 1));
+  let k = 0;
+  for (let i = 0; i <= steps && k < ARC_PTS; i++) {
+    if (i % per === 0 || i === steps) { pos[k * 3] = p.x; pos[k * 3 + 1] = p.y; pos[k * 3 + 2] = p.z; k++; }
+    nadeStep(p, 1 / 60);
+  }
+  for (let m = k; m < ARC_PTS; m++) { pos[m * 3] = p.x; pos[m * 3 + 1] = p.y; pos[m * 3 + 2] = p.z; }
+  nadeArc.geometry.attributes.position.needsUpdate = true;
+  nadeArc.computeLineDistances();
+  nadeRing.position.set(p.x, p.y - .05 + .03, p.z);
 }
 function updateNades(dt) {
   for (let i = G.nades.length - 1; i >= 0; i--) {
     const p = G.nades[i]; p.t += dt;
-    p.vy -= 14 * dt;
-    for (const ax of ['x', 'y', 'z']) {
-      const v = 'v' + ax, prev = p[ax]; p[ax] += p[v] * dt;
-      let hit = p.y < .07;
-      if (!hit) for (const b of BOXES) if (p.x > b.x0 - .07 && p.x < b.x1 + .07 && p.y > b.y0 - .07 && p.y < b.y1 + .07 && p.z > b.z0 - .07 && p.z < b.z1 + .07) { hit = true; break; }
-      if (hit) { p[ax] = prev; p[v] *= -.35; if (ax === 'y') { p.vx *= .7; p.vz *= .7; } }
-    }
-    p.y = Math.max(.07, p.y);
+    nadeStep(p, dt);
     p.mesh.position.set(p.x, p.y, p.z);
     if (p.t >= NADE.fuse) {
       scene.remove(p.mesh); G.nades.splice(i, 1);
@@ -1898,7 +2030,13 @@ function updateBot(a, dt) {
     if (ai.strafeT <= 0) { ai.strafe = Math.random() < .25 ? 0 : (Math.random() < .5 ? -1 : 1); ai.strafeT = .5 + Math.random() * .9; a.crouch = settings.diff !== 'easy' && Math.random() < .15; }
     const s = Math.sin(a.yaw), c = Math.cos(a.yaw);
     mvx = c * ai.strafe * 2.4; mvz = -s * ai.strafe * 2.4;
-    if (dist > 26) { mvx += -s * 2.6; mvz += -c * 2.6; }
+    // close in on a far target along a real path (walking straight at it pushes into walls when it is seen through a gap)
+    if (dist > 26 && !(ai.blockT > 0)) {
+      ai.chaseT = (ai.chaseT || 0) - dt;
+      if (ai.chaseT <= 0 || !ai.chase || !ai.chase.length) { ai.chase = findPath(a.x, a.z, layerOf(a.y), t.x, t.z, layerOf(t.y)); ai.chaseT = 1.2; }
+      while (ai.chase.length && Math.hypot(ai.chase[0][0] - a.x, ai.chase[0][1] - a.z) < .5) ai.chase.shift();
+      if (ai.chase.length) { const qx = ai.chase[0][0] - a.x, qz = ai.chase[0][1] - a.z, ql = Math.hypot(qx, qz) || 1; mvx += qx / ql * 2.6; mvz += qz / ql * 2.6; }
+    }
     ai.cool -= dt;
     if (ai.seeT > D.react && ai.cool <= 0 && Math.abs(wrap(want - a.yaw)) < .2) {
       botFire(a, t);
@@ -1930,9 +2068,20 @@ function updateBot(a, dt) {
     const dx = a.x - o.x, dz = a.z - o.z, d = Math.hypot(dx, dz);
     if (d > 0 && d < .8) { mvx += dx / d * 1.5; mvz += dz / d * 1.5; }
   }
+  // unstick: a bot that wants to move but barely moves for a while drops its path, sidesteps and repaths
+  ai.blockT = Math.max(0, (ai.blockT || 0) - dt);
+  if (ai.unstickT > 0) { ai.unstickT -= dt; mvx = ai.unstick[0]; mvz = ai.unstick[1]; }
   a.vx = mvx; a.vz = mvz;
-  const h = a.crouch ? 1.25 : 1.75;
+  const h = a.crouch ? 1.25 : 1.75, x0 = a.x, z0 = a.z;
   moveAxis(a, 'x', mvx * dt, h); moveAxis(a, 'z', mvz * dt, h);
+  const want = Math.hypot(mvx, mvz) * dt, got = Math.hypot(a.x - x0, a.z - z0);
+  if (want > .02 && got < want * .3) ai.stuckT = (ai.stuckT || 0) + dt; else ai.stuckT = Math.max(0, (ai.stuckT || 0) - dt * 2);
+  if (ai.stuckT > .6) {
+    ai.stuckT = 0; ai.path = []; ai.chase = null; ai.repath = 0; ai.blockT = 2; ai.strafe = -ai.strafe;
+    const ang = Math.atan2(mvz, mvx) + (Math.random() < .5 ? 1 : -1) * (Math.PI / 2 + Math.random() * .8);
+    ai.unstick = [Math.cos(ang) * 3.5, Math.sin(ang) * 3.5]; ai.unstickT = .45;
+    if (++ai.stuckN > 2) { ai.goal = null; ai.stuckN = 0; }
+  }
   a.vy = (a.vy || 0) - 18 * dt;
   const landed = moveAxis(a, 'y', a.vy * dt, h);
   if (a.y <= 0) { a.y = 0; a.vy = 0; } else if (landed) a.vy = 0;
@@ -2070,9 +2219,9 @@ window.addEventListener('keydown', e => {
   if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
   if ((e.code === 'KeyC' || e.code === 'ControlLeft') && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle;
-  if (e.code === 'KeyG' && nades > 0) { nades--; throwNade(me); }
+  if (e.code === 'KeyG') startNadeAim();
 });
-window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyG') releaseNadeAim(); });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; triggerHeld = false; if (settings.aimMode === 'hold') setAim(false); });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => {
@@ -2136,7 +2285,8 @@ $('tAim').addEventListener('pointerdown', e => { e.preventDefault(); aimPress(tr
 $('tAim').addEventListener('pointerup', () => aimPress(false)); $('tAim').addEventListener('pointercancel', () => aimPress(false));
 tap('tReload', startReload);
 tap('tSwap', () => { const sl = slots(), i = sl.indexOf(weapon); selectWeapon(sl[(i + 1) % sl.length]); });
-tap('tNade', () => { if (nades > 0) { nades--; throwNade(me); } });
+tap('tNade', startNadeAim);
+$('tNade').addEventListener('pointerup', releaseNadeAim); $('tNade').addEventListener('pointercancel', cancelNadeAim);
 $('tCrouch').addEventListener('pointerdown', e => {
   e.preventDefault(); if (!playing() || me.dead) return;
   if (settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; else touchCrouch = true;
@@ -2172,6 +2322,7 @@ function settingsHtml(inMatch) {
   return `
     <div class="set">
       ${inMatch ? '' : `<span class="lab">맵</span>${segHtml('map', [['supply', '보급기지'], ['depot', '물류기지']])}`}
+      ${inMatch || !DEPOT_MAP ? '' : `<span class="lab">창고 골목 배치</span><button class="btn ghost reroll" type="button" data-act="reroll">새 배치 만들기 · #${DEPOT_SEED}</button>`}
       ${inMatch ? '' : `<span class="lab">목표 킬</span>${segHtml('goal', GOALS.map(g => [String(g), String(g)]))}`}
       ${inMatch ? '' : `<span class="lab">제한 시간</span>${segHtml('minutes', TIMES.map(m => [String(m), m + '분']))}`}
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
@@ -2220,7 +2371,7 @@ function controlsHtml() {
       <dt>1 2 3 · X · 휠</dt><dd>주무기, 보조무기, 칼 · 이전 무기</dd>
       <dt>B</dt><dd>무기 고르기 (다음 부활부터 적용)</dd>
       <dt>Q · E</dt><dd>왼쪽 · 오른쪽으로 기울이기</dd>
-      <dt>G</dt><dd>수류탄</dd>
+      <dt>G</dt><dd>수류탄 (누르고 있으면 궤적 표시, 떼면 던짐)</dd>
       <dt>Space · Ctrl/C</dt><dd>점프 · 앉기</dd>
       <dt>Tab</dt><dd>점수판</dd>
       <dt>Esc</dt><dd>일시정지</dd>
@@ -2248,7 +2399,7 @@ function startMatch() {
 }
 function pauseGame() {
   if (G.state !== 'play' && G.state !== 'count') return;
-  G.resume = G.state; G.state = 'pause';
+  G.resume = G.state; G.state = 'pause'; cancelNadeAim();
   triggerHeld = false; for (const k in keys) keys[k] = false;
   if (settings.aimMode === 'hold') setAim(false);
   if (document.pointerLockElement) document.exitPointerLock();
@@ -2272,7 +2423,7 @@ function resumeGame() { loadoutOpen = false; $('overlay').hidden = true; G.state
 const END_SLOW = .2, END_TIME = 3.4;
 function endMatch() {
   if (G.state === 'ending' || G.state === 'over') return;
-  G.state = 'ending'; G.endT = 0;
+  G.state = 'ending'; G.endT = 0; cancelNadeAim();
   G.result = G.score.blue > G.score.red ? 'win' : G.score.blue < G.score.red ? 'lose' : 'draw';
   triggerHeld = false; setAim(false); for (const k in keys) keys[k] = false;
   const [big, sub] = { win: ['승리', 'VICTORY'], lose: ['패배', 'DEFEAT'], draw: ['무승부', 'DRAW'] }[G.result];
@@ -2394,6 +2545,7 @@ $('overlay').addEventListener('click', e => {
   if (b.dataset.act === 'ready') startMatch();
   if (b.dataset.act === 'loadout') showLoadout(true);
   if (b.dataset.act === 'pause') showPause();
+  if (b.dataset.act === 'reroll') { b.disabled = true; location.hash = `map=depot&seed=${1 + Math.floor(Math.random() * 99999)}`; location.reload(); }
   if (b.dataset.act === 'resume') resumeGame();
   if (b.dataset.act === 'menu') { if (document.pointerLockElement) document.exitPointerLock(); showMenu(); }
 });
@@ -2437,6 +2589,7 @@ function step(dt) {
 function render(dt) {
   if (G.state !== 'menu') {
     if (G.state !== 'pause') updateFx(dt);
+    updateNadeArc();
     const dead = me.dead;
     const [lx, lz] = dead ? [0, 0] : leanVec(me);
     camera.position.set(me.x + lx, me.y + (dead ? .4 : eyeH(me)) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
