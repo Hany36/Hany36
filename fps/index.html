@@ -55,6 +55,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .score .sb { background: rgba(91, 149, 240, .32); }
 .score .sr { background: rgba(239, 90, 79, .32); }
 .score .st { font-size: 15px; display: grid; place-items: center; min-width: 64px; color: var(--muted); }
+.zonetag { position: fixed; left: 10px; top: calc(140px + env(safe-area-inset-top, 0px)); width: 124px; text-align: center; padding: 2px 4px; border-radius: 6px; background: var(--hud); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptr .zonetag { top: calc(112px + env(safe-area-inset-top, 0px)); width: 96px; }
 .radar { position: fixed; left: 10px; top: calc(10px + env(safe-area-inset-top, 0px)); width: 124px; height: 124px; border-radius: 50%; background: rgba(14, 16, 14, .55); border: 1px solid var(--line); }
 .feed { position: fixed; right: 10px; top: calc(10px + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 46vw; }
 .feed div { padding: 2px 8px; border-radius: 5px; background: var(--hud); font-size: 12.5px; white-space: nowrap; }
@@ -198,6 +200,7 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
   <div class="dmgdir" id="dmgdir"></div>
   <div class="score"><div class="sb" id="sBlue">0</div><div class="st" id="sTime">5:00</div><div class="sr" id="sRed">0</div></div>
   <canvas class="radar" id="radar" width="248" height="248"></canvas>
+  <div class="zonetag" id="zoneTag" hidden></div>
   <div class="feed" id="feed"></div>
   <div class="hp"><b id="hpNum">100</b><div class="bar"><i id="hpBar"></i></div></div>
   <div class="ammo"><b id="ammoMag">30</b> <span id="ammoRes">/ 120</span><small id="wName">소총 · 수류탄 2</small></div>
@@ -231,8 +234,21 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 // =============== map: supply depot with A and B sites and a two-storey middle building ===============
 // Blue holds the west (A site north-west, B site south-west); Red attacks from the east by three routes:
 // the indoor corridor building (north, to A), the middle building with its second floor, and the long outdoor alley (south, to B).
-const MX = 48, MZ = 32;                     // half extents (meters)
-const FLOOR2 = 3.2;                         // second-floor height
+// Two maps: 'supply' (the original supply depot) and 'depot' (the logistics depot from map-proto/,
+// built from the same MAP_CONFIG data). The map is chosen on the main menu and the page reloads with it,
+// because the map size, second-floor height and navigation grid are fixed when the page loads.
+const MAP_ID = (() => {
+  const h = /map=(\w+)/.exec(location.hash);            // the hash wins, so the choice also works where storage is blocked
+  if (h) return h[1] === 'depot' ? 'depot' : 'supply';
+  try { return (JSON.parse(localStorage.getItem('supply-op.settings')) || {}).map === 'depot' ? 'depot' : 'supply'; } catch (e) { return 'supply'; }
+})();
+const DEPOT_MAP = MAP_ID === 'depot';
+const MX = DEPOT_MAP ? 64 : 48, MZ = DEPOT_MAP ? 44 : 32;   // half extents (meters)
+const FLOOR2 = DEPOT_MAP ? 4 : 3.2;                           // second-floor height
+// per-map spots: spawn strip (x from the center line, z half width), spawn floor paint, menu camera
+const MAP_META = DEPOT_MAP
+  ? { spawnX: [52, 61], spawnZ: 13, spawnPaint: [57, 14, 32], menuCam: [-30, 2.2, 22, -2.2], shadow: [72, 50] }
+  : { spawnX: [41, 46], spawnZ: 8, spawnPaint: [43.5, 6, 18], menuCam: [28, 2.1, 18.8, Math.PI / 2], shadow: [58, 46] };
 const BOXES = [];
 function addBox(cx, cz, sx, sz, h, mat, y0 = 0, vis = true) {
   BOXES.push({ x0: cx - sx / 2, x1: cx + sx / 2, z0: cz - sz / 2, z1: cz + sz / 2, y0, y1: y0 + h, mat, vis });
@@ -260,7 +276,308 @@ function stairs(xBottom, dir, z0, z1) {
 const LAMPS = [], RACKS = [], TRUCKS = [], INDOOR = [], TANKS = [], SIGNS = [];
 const FLOORS2 = [];     // walkable second-floor rectangles [x0, z0, x1, z1]
 const LINKS = [];       // stair links between floors: [groundX, groundZ, upperX, upperZ]
-(function buildMap() {
+const PIPES = [], TEXT_SIGNS = [], PAINT = [];
+const DEPOT = {
+  size: { x: [-64, 64], z: [-44, 44] },
+  outerWallHeight: 8,
+  player: { radius: .35, height: 1.7, eye: 1.6, walk: 4.6, run: 7.6, jump: 6, gravity: 16, stepUp: .45 },
+  spawns: {
+    blue: { pos: [-58, 0, 0], yaw: -Math.PI / 2 },   // looking east
+    red: { pos: [58, 0, 0], yaw: Math.PI / 2 },      // looking west
+  },
+  palette: {
+    asphalt: 0x575b5b, concrete: 0x9b9b95, concreteDark: 0x7a7c77, block: 0x6c706b,
+    blueWall: 0x3a5d90, redWall: 0x8f3b35, blueFloor: 0x4d6488, redFloor: 0x7d4a44,
+    warehouse: 0x6e7c77, warehouseFloor: 0x696b66, hall: 0xa79f8e, hallFloor: 0x8a857a, slab: 0x8e8a80, roof: 0x464b4f,
+    crate: 0x8b6a40, pallet: 0xa1824f, barrier: 0xbcb8aa, metal: 0x4f565b, rail: 0xd6a31e, pipe: 0x6c757a, tank: 0xc6c4bb,
+    contRust: 0x8a4630, contBlue: 0x2f5f8d, contGreen: 0x3f6b3c, contOchre: 0xa47a28, contGray: 0x7a8287,
+    siteA: 0xd9a92b, siteB: 0xd9772b, zoneMid: 0x6d6f62, zoneLong: 0x6a6656,
+  },
+  // material swaps when the west half is mirrored to the east
+  mirrorMat: { blueWall: 'redWall', blueFloor: 'redFloor', contBlue: 'contRust', contRust: 'contBlue' },
+  mirrorText: { 'BLUE SPAWN': 'RED SPAWN', 'BLUE': 'RED' },
+
+  // Zones for the HUD and minimap. The first match wins, so the order matters.
+  zones: [
+    { name: 'Central Hall 2F', ko: '중앙 건물 2층 · 발코니 · 보행로', x: [-20, 20], z: [-15.2, 13.2], yMin: 3.3, color: '#b6ab8f' },
+    { name: 'Central Hall', ko: '중앙 건물 1층 통과로', x: [-12, 12], z: [-12, 10], color: '#b6ab8f' },
+    { name: 'A Site', ko: 'A 지역 · 실내 창고', x: [-16, 16], z: [-44, -18], color: '#d9a92b' },
+    { name: 'B Flank', ko: 'B 뒤쪽 우회로', x: [-14, 14], z: [41.5, 44], color: '#d9772b' },
+    { name: 'B Site', ko: 'B 지역 · 야외 설비장', x: [-14, 14], z: [16, 44], color: '#d9772b' },
+    { name: 'A Link', ko: '중앙 건물 → A 연결로', x: [-16, 16], z: [-18, -12], color: '#9b9b80' },
+    { name: 'B Link', ko: '중앙 건물 → B 연결로', x: [-14, 14], z: [10, 16], color: '#9b9b80' },
+    { name: 'Blue Short Route', ko: '블루 쪽 실내 진입로 (짧은 길)', x: [-48, -16], z: [-36, -26], color: '#7f8fa8' },
+    { name: 'Red Short Route', ko: '레드 쪽 실내 진입로 (짧은 길)', x: [16, 48], z: [-36, -26], color: '#a88580' },
+    { name: 'Blue Long Route', ko: '블루 쪽 야외 교전로 (긴 길)', x: [-50, -14], z: [13, 44], color: '#7f8fa8' },
+    { name: 'Red Long Route', ko: '레드 쪽 야외 교전로 (긴 길)', x: [14, 50], z: [13, 44], color: '#a88580' },
+    { name: 'Blue Mid Yard', ko: '블루 쪽 중앙 마당', x: [-50, -12], z: [-26, 13], color: '#7f8fa8' },
+    { name: 'Red Mid Yard', ko: '레드 쪽 중앙 마당', x: [12, 50], z: [-26, 13], color: '#a88580' },
+    { name: 'Blue Spawn', ko: '블루 팀 시작 지점 · 정비 구역', x: [-64, -48], z: [-44, 44], color: '#5b95f0' },
+    { name: 'Red Spawn', ko: '레드 팀 시작 지점 · 하역 구역', x: [48, 64], z: [-44, 44], color: '#ef5a4f' },
+  ],
+
+  // ------------------------------------------------------------------ built once
+  center: {
+    floors: [  // colored floor paint (visual only)
+      { x: [-16, 16], z: [-44, -18], color: 'warehouseFloor' },
+      { x: [-7, 7], z: [-38, -24], color: 'siteA', alpha: .5 },
+      { x: [-12, 12], z: [-12, 10], color: 'hallFloor' },
+      { x: [-8, 8], z: [22, 36], color: 'siteB', alpha: .45 },
+    ],
+    decals: [  // big painted letters on the floor
+      { text: 'A', x: 0, z: -31, size: 7, color: '#f2c64a' },
+      { text: 'B', x: 0, z: 29, size: 7, color: '#f0913e' },
+    ],
+    walls: [
+      // A warehouse south wall: big rolling door in the middle, two side doors
+      { axis: 'z', at: -18, from: -16, to: 16, h: 9, mat: 'warehouse', open: [[-4, 4, 0, 4.5], [-14, -11, 0, 3], [11, 14, 0, 3]] },
+      // Central hall north and south walls: 1F doors, 2F doors to the catwalk/balcony, 2F windows
+      { axis: 'z', at: -12, from: -12, to: 12, h: 8, mat: 'hall', open: [[-2, 2, 0, 3], [-2, 2, 4, 6.4], [-7, -4.5, 5, 6.6], [4.5, 7, 5, 6.6]] },
+      { axis: 'z', at: 10, from: -12, to: 12, h: 8, mat: 'hall', open: [[-2, 2, 0, 3], [-8, -6, 4, 6.4], [6, 8, 4, 6.4], [-4.5, -3, 5, 6.6], [3, 4.5, 5, 6.6]] },
+    ],
+    boxes: [
+      // outer boundary
+      { x: [-64.5, 64.5], z: [-44.5, -44], y: [0, 8], mat: 'concreteDark' },
+      { x: [-64.5, 64.5], z: [44, 44.5], y: [0, 8], mat: 'concreteDark' },
+      // A warehouse: roof, racks, crates (the site is split by pillars and stacks)
+      { x: [-16, 16], z: [-44, -18], y: [9, 9.3], mat: 'roof', kind: 'roof' },
+      { x: [-14, -6], z: [-43.8, -42.6], y: [0, 4], mat: 'metal' },
+      { x: [6, 14], z: [-43.8, -42.6], y: [0, 4], mat: 'metal' },
+      { x: [-3, -1], z: [-32, -30], y: [0, 2], mat: 'crate' },
+      { x: [-2.6, -1.4], z: [-31.6, -30.4], y: [2, 3.2], mat: 'crate' },
+      { x: [3, 4.5], z: [-28, -26.5], y: [0, 1.5], mat: 'crate' },
+      { x: [5, 7], z: [-36, -34], y: [0, 1.2], mat: 'crate' },
+      { x: [-13.5, -9], z: [-41, -39.5], y: [0, 1.5], mat: 'crate' },
+      { x: [9, 11], z: [-42, -40], y: [0, 3], mat: 'crate' },
+      { x: [-8, -6.5], z: [-23, -21.5], y: [0, 1.4], mat: 'crate' },
+      { x: [6.5, 8], z: [-22, -20.5], y: [0, 2], mat: 'crate' },
+      { x: [-.6, .6], z: [-37.4, -36.2], y: [0, 9], mat: 'concrete' },
+      // Central hall: roof, 2F slab with two stairwell holes (x -11.75..-3.5 and 3.5..11.75 at the north wall)
+      { x: [-12, 12], z: [-12, 10], y: [8, 8.3], mat: 'roof', kind: 'roof' },
+      { x: [-11.75, 11.75], z: [-9.6, 9.75], y: [3.7, 4], mat: 'slab', kind: 'slab' },
+      { x: [-3.5, 3.5], z: [-11.75, -9.6], y: [3.7, 4], mat: 'slab', kind: 'slab' },
+      { x: [-.5, .5], z: [-1.5, -.5], y: [0, 3.7], mat: 'concrete' },                   // breaks the long 1F door-to-door sightline
+      // south balcony (overlooks B Link and both long routes) and north catwalk (overlooks A Link)
+      { x: [-12, 12], z: [10.25, 13], y: [3.7, 4], mat: 'slab', kind: 'slab' },
+      { x: [-12, 12], z: [12.85, 13], y: [4, 5], mat: 'rail' },
+      { x: [-12, 12], z: [-15, -12.25], y: [3.7, 4], mat: 'slab', kind: 'slab' },
+      { x: [-12, 12], z: [-15, -14.85], y: [4, 5], mat: 'rail' },
+      // B link: a barrier so the hall door does not look straight onto the site
+      { x: [-3, 3], z: [17, 17.6], y: [0, 1.1], mat: 'barrier' },
+      // B site: generator in the middle
+      { x: [-2, 2], z: [30, 32], y: [0, 1.8], mat: 'metal' },
+    ],
+    signs: [
+      { text: 'A SITE', sub: 'WAREHOUSE', pos: [0, 6.3, -17.7], ry: 0, w: 6, h: 1.8, bg: '#d9a92b', fg: '#1b1b1b' },
+      { text: 'A', sub: 'LOADING BAY', pos: [0, 6.5, -43.7], ry: 0, w: 3.2, h: 2.4, bg: '#d9a92b', fg: '#1b1b1b' },
+      { text: 'CENTRAL HALL', sub: '2F BALCONY', pos: [0, 7.3, 10.3], ry: 0, w: 7, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
+      { text: 'CENTRAL HALL', sub: '2F CATWALK', pos: [0, 7.3, -12.3], ry: Math.PI, w: 7, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
+    ],
+    lights: [
+      { pos: [0, 8.2, -31], color: 0xfff1d6, intensity: 60, distance: 26 },
+      { pos: [0, 8.2, -22], color: 0xfff1d6, intensity: 40, distance: 20 },
+      { pos: [0, 3.3, -6], color: 0xfff1d6, intensity: 18, distance: 14 },
+    ],
+    pipes: [],
+    tanks: [],
+    stairs: [],
+  },
+
+  // ------------------------------------------------------------------ Blue half (mirrored to Red)
+  west: {
+    floors: [
+      { x: [-64, -50], z: [-16, 16], color: 'blueFloor' },
+      { x: [-50, -12], z: [-26, 13], color: 'zoneMid', alpha: .25 },
+      { x: [-50, -14], z: [13, 44], color: 'zoneLong', alpha: .25 },
+    ],
+    decals: [],
+    walls: [
+      // spawn enclosure: two exits east, one north (to the short route), one south (to the long route)
+      { axis: 'x', at: -50, from: -16, to: 16, h: 4, mat: 'blueWall', open: [[-13, -9, 0, 3.2], [9, 13, 0, 3.2]] },
+      { axis: 'z', at: -16, from: -64, to: -50, h: 4, mat: 'blueWall', open: [[-60, -55, 0, 3.2]] },
+      { axis: 'z', at: 16, from: -64, to: -50, h: 4, mat: 'blueWall', open: [[-60, -55, 0, 3.2]] },
+      // short route building: door from the spawn side, S-shaped corridor with two corners, door into A
+      { axis: 'x', at: -48, from: -36, to: -26, h: 4.5, mat: 'concrete', open: [[-30, -27, 0, 3]] },
+      { axis: 'z', at: -26, from: -48, to: -16, h: 4.5, mat: 'concrete' },
+      { axis: 'z', at: -31, from: -48, to: -27, h: 4.5, mat: 'concrete' },                 // corner 1 is the gap x -27..-22
+      { axis: 'z', at: -31, from: -22, to: -16, h: 4.5, mat: 'concrete' },
+      { axis: 'x', at: -22, from: -31, to: -26, h: 4.5, mat: 'concrete' },                 // closes the south strip: turn north
+      // A warehouse west wall with the short-route door
+      { axis: 'x', at: -16, from: -44, to: -18, h: 9, mat: 'warehouse', open: [[-35, -32, 0, 3]] },
+      // central hall west wall: 1F door, 2F windows looking over the mid yard
+      { axis: 'x', at: -12, from: -12, to: 10, h: 8, mat: 'hall', open: [[-3, 1, 0, 3], [-8, -5, 5, 6.6], [3, 7, 5, 6.6]] },
+      // divider between the mid yard and the long route (gap x -22..-14 next to the hall)
+      { axis: 'z', at: 13, from: -50, to: -22, h: 3.5, mat: 'concrete' },
+    ],
+    boxes: [
+      { x: [-64.5, -64], z: [-44.5, 44.5], y: [0, 8], mat: 'concreteDark' },                // outer west wall
+      // Blue spawn: supply racks, crates, sight blockers in front of the exits
+      { x: [-63.5, -62.5], z: [-10, 10], y: [0, 3], mat: 'metal' },
+      { x: [-56, -54.5], z: [-14, -12.5], y: [0, 1.2], mat: 'crate' },
+      { x: [-56, -54.5], z: [12.5, 14], y: [0, 1.2], mat: 'crate' },
+      { x: [-47, -46.4], z: [-15, -7], y: [0, 3], mat: 'blueWall' },
+      { x: [-47, -46.4], z: [7, 15], y: [0, 3], mat: 'blueWall' },
+      { x: [-60, -58], z: [-36, -34], y: [0, 1.4], mat: 'crate' },
+      { x: [-56, -53], z: [-24, -23.4], y: [0, 1.1], mat: 'barrier' },
+      { x: [-60, -58], z: [24, 26], y: [0, 1.5], mat: 'crate' },
+      // short route: the block north of the corridor, its roof, the sealed pocket, low crates
+      { x: [-48, -16], z: [-44, -36], y: [0, 4.8], mat: 'block' },
+      { x: [-48, -16], z: [-36, -26], y: [4.5, 4.8], mat: 'roof', kind: 'roof' },
+      { x: [-21.75, -16], z: [-30.75, -26.25], y: [0, 4.5], mat: 'block' },
+      { x: [-36, -35], z: [-30.6, -29.4], y: [0, 1], mat: 'crate' },
+      { x: [-44, -42.8], z: [-27.4, -26.3], y: [0, 1.1], mat: 'crate' },
+      { x: [-30, -29], z: [-35.6, -34.6], y: [0, 1], mat: 'crate' },
+      { x: [-20, -19], z: [-32.4, -31.3], y: [0, 1], mat: 'crate' },
+      // A warehouse pillars
+      { x: [-8.4, -7.6], z: [-37.4, -36.6], y: [0, 9], mat: 'concrete' },
+      { x: [-8.4, -7.6], z: [-25.4, -24.6], y: [0, 9], mat: 'concrete' },
+      // mid yard: container, truck, crates, barriers, low wall
+      { x: [-44, -38], z: [-22, -19.5], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
+      { x: [-40, -34], z: [-8, -5.5], y: [0, 3], mat: 'contGray' },
+      { x: [-34, -32], z: [-8, -5.5], y: [0, 2.4], mat: 'blueWall' },
+      { x: [-29, -27], z: [-19, -17], y: [0, 2], mat: 'crate' },
+      { x: [-27, -26], z: [-18.5, -17.5], y: [0, 1], mat: 'crate' },
+      { x: [-24, -21], z: [2, 2.6], y: [0, 1.1], mat: 'barrier' },
+      { x: [-30, -29.4], z: [-4, 4], y: [0, 1.2], mat: 'concrete' },
+      { x: [-18, -16.5], z: [5, 6.5], y: [0, 1.2], mat: 'crate' },
+      { x: [-44, -42.8], z: [6, 7.2], y: [0, .25], mat: 'pallet' },
+      { x: [-43.9, -42.9], z: [6.1, 7.1], y: [.25, 1.25], mat: 'crate' },
+      // central hall: inner stair rail, 1F crates, balcony and catwalk supports
+      { x: [-11.75, -3.5], z: [-9.75, -9.6], y: [4, 5], mat: 'rail' },
+      { x: [-8, -6.5], z: [3, 4.5], y: [0, 1.2], mat: 'crate' },
+      { x: [-6.15, -5.85], z: [12.5, 12.8], y: [0, 3.7], mat: 'metal' },
+      { x: [-6.15, -5.85], z: [-14.8, -14.5], y: [0, 3.7], mat: 'metal' },
+      // long route: containers (one stacked), barriers, pallets; pipe rack collider along the south wall
+      { x: [-46, -40], z: [18, 20.5], y: [0, 2.6], mat: 'contRust', kind: 'container' },
+      { x: [-36, -33.5], z: [24, 30], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
+      { x: [-28, -22], z: [17, 19.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
+      { x: [-28, -22], z: [17, 19.5], y: [2.6, 5.2], mat: 'contOchre', kind: 'container' },
+      { x: [-44, -38], z: [36, 38.5], y: [0, 2.6], mat: 'contOchre', kind: 'container' },
+      { x: [-21, -18.5], z: [30, 36], y: [0, 2.6], mat: 'contRust', kind: 'container' },
+      { x: [-30, -27], z: [34, 34.6], y: [0, 1.1], mat: 'barrier' },
+      { x: [-41, -38], z: [28, 28.6], y: [0, 1.1], mat: 'barrier' },
+      { x: [-17, -14], z: [22, 22.6], y: [0, 1.1], mat: 'barrier' },
+      { x: [-25, -23.8], z: [38, 39.2], y: [0, .25], mat: 'pallet' },
+      { x: [-24.9, -23.9], z: [38.1, 39.1], y: [.25, 1.25], mat: 'crate' },
+      { x: [-50, -16], z: [42.3, 43.7], y: [0, 2], mat: 'pipe', hidden: true },
+      // B site: side container, flank wall of containers (gaps at x -8..-6 and -1.2..1.2), barrier
+      { x: [-12, -6], z: [26, 28.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
+      { x: [-14, -8], z: [39, 41.5], y: [0, 2.6], mat: 'contGray', kind: 'container' },
+      { x: [-6, -1.2], z: [39, 41.5], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
+      { x: [-6, -1.2], z: [39, 41.5], y: [2.6, 5.2], mat: 'contRust', kind: 'container' },
+      { x: [-5, -2], z: [24, 24.6], y: [0, 1.1], mat: 'barrier' },
+    ],
+    stairs: [
+      // ascent direction: '+x' means the steps rise toward +x
+      { x: [-11.5, -3.5], z: [-11.75, -9.75], rise: 4, steps: 16, dir: '+x', mat: 'concreteDark' },   // inside the hall
+      { x: [-20, -12], z: [10.5, 12.5], rise: 4, steps: 16, dir: '+x', mat: 'concreteDark' },       // up to the south balcony
+      { x: [-20, -12], z: [-14.75, -12.75], rise: 4, steps: 16, dir: '+x', mat: 'concreteDark' },   // up to the north catwalk
+    ],
+    pipes: [
+      { from: [-50, .6, 42.7], to: [-16, .6, 42.7], r: .35 },
+      { from: [-50, 1.5, 43.3], to: [-16, 1.5, 43.3], r: .3 },
+    ],
+    tanks: [
+      { x: -9.5, z: 33, r: 1.2, h: 3.2 },
+    ],
+    signs: [
+      { text: 'BLUE SPAWN', sub: '← A        B →', pos: [-50.3, 3, 0], ry: -Math.PI / 2, w: 6, h: 1.6, bg: '#3a5d90', fg: '#ffffff' },
+      { text: 'BLUE SPAWN', sub: 'MAINTENANCE', pos: [-49.7, 3, 0], ry: Math.PI / 2, w: 6, h: 1.5, bg: '#3a5d90', fg: '#ffffff' },
+      { text: 'SHORT ROUTE', sub: '→ A', pos: [-48.3, 3.7, -28.5], ry: -Math.PI / 2, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
+      { text: 'A', sub: '→', pos: [-16.3, 3.9, -33.5], ry: -Math.PI / 2, w: 1.6, h: 1.2, bg: '#d9a92b', fg: '#1b1b1b' },
+      { text: 'LONG ROUTE', sub: '→ B', pos: [-36, 2.6, 13.3], ry: 0, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
+      { text: 'B SITE', sub: 'UTILITY YARD', pos: [-3.6, 4, 38.9], ry: Math.PI, w: 4.2, h: 1.5, bg: '#d9772b', fg: '#1b1b1b' },
+      { text: 'CENTRAL HALL', sub: '1F', pos: [-12.3, 3.6, -1], ry: -Math.PI / 2, w: 4.6, h: 1, bg: '#e6e0d0', fg: '#262626' },
+    ],
+    lights: [
+      { pos: [-35, 4, -28.5], color: 0xffe3b0, intensity: 14, distance: 12 },
+      { pos: [-24, 4, -33.5], color: 0xffe3b0, intensity: 14, distance: 12 },
+      { pos: [-8, 8.2, -31], color: 0xfff1d6, intensity: 45, distance: 22 },
+      { pos: [-6, 7.4, 0], color: 0xfff1d6, intensity: 18, distance: 14 },
+    ],
+  },
+};
+
+// =====================================================================================
+// mirroring (Blue half -> Red half)
+// =====================================================================================
+const depotMat = m => DEPOT.mirrorMat[m] || m;
+const flip = ([a, b]) => [-b, -a];
+const mirror = {
+  floors: f => ({ ...f, x: flip(f.x), color: depotMat(f.color) }),
+  decals: d => ({ ...d, x: -d.x }),
+  walls: w => w.axis === 'x'
+    ? { ...w, at: -w.at, mat: depotMat(w.mat) }
+    : { ...w, from: -w.to, to: -w.from, mat: depotMat(w.mat), open: (w.open || []).map(([a, b, y0, y1]) => [-b, -a, y0, y1]) },
+  boxes: b => ({ ...b, x: flip(b.x), mat: depotMat(b.mat) }),
+  stairs: s => ({ ...s, x: flip(s.x), dir: s.dir === '+x' ? '-x' : s.dir === '-x' ? '+x' : s.dir }),
+  pipes: p => ({ ...p, from: [-p.from[0], p.from[1], p.from[2]], to: [-p.to[0], p.to[1], p.to[2]] }),
+  tanks: t => ({ ...t, x: -t.x }),
+  signs: s => ({
+    ...s, pos: [-s.pos[0], s.pos[1], s.pos[2]], ry: -s.ry,
+    text: DEPOT.mirrorText[s.text] || s.text,
+    sub: s.sub === 'MAINTENANCE' ? 'LOADING DOCK' : s.sub === '← A        B →' ? '← B        A →' : s.sub === '→ A' ? 'A ←' : s.sub === '→ B' ? 'B ←' : s.sub === '→' ? '←' : s.sub,
+    bg: s.bg === '#3a5d90' ? '#8f3b35' : s.bg,
+  }),
+  lights: l => ({ ...l, pos: [-l.pos[0], l.pos[1], l.pos[2]] }),
+};
+function depotLayout() {
+  const out = {};
+  for (const key of Object.keys(mirror)) {
+    const west = DEPOT.west[key] || [];
+    out[key] = [...(DEPOT.center[key] || []), ...west, ...west.map(mirror[key])];
+  }
+  return out;
+}
+
+
+// Converts the logistics depot's MAP_CONFIG into this game's boxes, floors, lamps and decorations.
+function buildDepotMap() {
+  const L = depotLayout();
+  const MATMAP = {
+    concrete: 'concrete', concreteDark: 'metalwall', block: 'concrete', blueWall: 'paintB', redWall: 'paintR',
+    warehouse: 'whwall', hall: 'brick', slab: 'slab', roof: 'roof', crate: 'crate', pallet: 'crate', barrier: 'barrier',
+    metal: 'metalwall', rail: 'railing', pipe: 'concrete', tank: 'concrete',
+    contRust: 'contR', contBlue: 'contB', contGreen: 'contG', contOchre: 'contY', contGray: 'trailer',
+  };
+  const box = (b, mat) => BOXES.push({ x0: b.x[0], x1: b.x[1], z0: b.z[0], z1: b.z[1], y0: b.y[0], y1: b.y[1], mat: mat || MATMAP[b.mat] || 'concrete', vis: !b.hidden });
+  for (const w of L.walls) wall(w.axis, w.at, w.from, w.to, w.h, MATMAP[w.mat] || 'concrete', (w.open || []).map(([a, b2, y0, y1]) => ({ a, b: b2, y0, y1 })), w.t ?? .5);
+  for (const b of L.boxes) {
+    const sx = b.x[1] - b.x[0], sz = b.z[1] - b.z[0], h = b.y[1] - b.y[0];
+    // metal racks in the warehouse become shelving racks; the truck becomes the game's truck
+    if (b.mat === 'metal' && h >= 3.9 && b.y[0] === 0 && Math.max(sx, sz) > 6) {
+      RACKS.push([(b.x[0] + b.x[1]) / 2, (b.z[0] + b.z[1]) / 2, sx, sz, h, 0]); box(b, 'rack'); BOXES[BOXES.length - 1].vis = false; continue;
+    }
+    if (b.mat === 'contGray' && h === 3) {
+      const dir = b.x[0] < 0 ? 1 : -1, cx = (b.x[0] + b.x[1]) / 2, cz = (b.z[0] + b.z[1]) / 2;
+      addBox(cx, cz, 8, 2.6, 2.7, 'trailer', .9); addBox(cx + dir * 5.6, cz, 2.4, 2.5, 2.3, 'cab', .5); TRUCKS.push([cx, cz, dir]);
+      continue;
+    }
+    if (b.mat === 'blueWall' || b.mat === 'redWall') { if (h === 2.4 && sx === 2) continue; }   // old truck cab
+    box(b);
+  }
+  for (const s of L.stairs) {
+    const along = s.dir.endsWith('x') ? 'x' : 'z', up = s.dir.startsWith('+'), [a0, a1] = s[along], step = (a1 - a0) / s.steps;
+    for (let i = 0; i < s.steps; i++) {
+      const k = up ? i : s.steps - 1 - i, r = [a0 + k * step, a0 + (k + 1) * step];
+      box({ x: along === 'x' ? r : s.x, z: along === 'z' ? r : s.z, y: [0, s.rise * (i + 1) / s.steps] }, 'concrete');
+    }
+  }
+  for (const p of L.pipes) PIPES.push(p);
+  for (const t of L.tanks) { box({ x: [t.x - t.r, t.x + t.r], z: [t.z - t.r, t.z + t.r], y: [0, t.h], hidden: true }); TANKS.push([t.x, t.z, t.r, t.h]); }
+  for (const sg of L.signs) TEXT_SIGNS.push(sg);
+  for (const f of L.floors) if (f.color === 'warehouseFloor' || f.color === 'hallFloor') INDOOR.push([f.x[0], f.z[0], f.x[1], f.z[1]]);
+  INDOOR.push([-48, -36, -16, -26], [16, -36, 48, -26]);                               // short-route corridors
+  PAINT.push([-7, -38, 7, -24, 0xd9a92b], [-8, 22, 8, 36, 0xd9772b]);                    // site floor paint
+  SIGNS.push(['A', 0, -31], ['B', 0, 29]);
+  for (const l of L.lights) LAMPS.push([l.pos[0], l.pos[1] - .2, l.pos[2]]);
+  LAMPS.push([-24, 3.4, -28.5], [24, 3.4, -28.5], [-40, 4.2, -33.5], [40, 4.2, -33.5]);
+  // walkable second floor: every slab, grown a little so doorways between slabs connect
+  for (const b of L.boxes) if (b.kind === 'slab') FLOORS2.push([b.x[0] - .3, b.z[0] - .3, b.x[1] + .3, b.z[1] + .3]);
+  // stairs as nav links: [ground x, z, upper x, z] (inside the hall, to the balcony, to the catwalk), both sides
+  for (const s of [1, -1]) LINKS.push([-11 * s, -8.5, -2.5 * s, -10.5], [-21 * s, 11.5, -11 * s, 11.5], [-21 * s, -13.75, -11 * s, -13.5]);
+}
+if (DEPOT_MAP) buildDepotMap(); else (function buildMap() {
   // outer perimeter
   addBox(0, -MZ - .5, MX * 2 + 2, 1, 9, 'metalwall'); addBox(0, MZ + .5, MX * 2 + 2, 1, 9, 'metalwall');
   addBox(-MX - .5, 0, 1, MZ * 2, 9, 'metalwall'); addBox(MX + .5, 0, 1, MZ * 2, 9, 'metalwall');
@@ -433,8 +750,9 @@ function findPath(sx, sz, sl, tx, tz, tl) {
   return out.map(n => { const [i, j] = cellXY(n); const [x, z] = cellCenter(i, j); return [x, z, lay(n)]; });
 }
 const POIS = [];
-for (let z = -28; z <= 28; z += 4) for (let x = -44; x <= 44; x += 4) { if (walkable(...cellOf(x, z), 0)) POIS.push([x, z, 0]); }
-for (const [x, z] of [[-1, 4], [11, -3], [11, 5], [-8, 0], [1, -5]]) if (walkable(...cellOf(x, z), 1)) POIS.push([x, z, 1], [x, z, 1]);
+for (let z = 4 - MZ; z <= MZ - 4; z += 4) for (let x = 4 - MX; x <= MX - 4; x += 4) { if (walkable(...cellOf(x, z), 0)) POIS.push([x, z, 0]); }
+const UPPER_POIS = DEPOT_MAP ? [[-6, 0], [6, 0], [0, -13.5], [-8, 11.5], [8, 11.5], [0, 5], [-9, -5], [9, -5]] : [[-1, 4], [11, -3], [11, 5], [-8, 0], [1, -5]];
+for (const [x, z] of UPPER_POIS) if (walkable(...cellOf(x, z), 1)) POIS.push([x, z, 1], [x, z, 1]);
 
 // =============== ray tests ===============
 function rayBox(o, d, b, maxT) {
@@ -511,8 +829,9 @@ const DIFF = {
 const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈', '코브라', '하이에나', '독사', '까마귀'] };
 const GOAL = 40, MATCH_TIME = 300, RESPAWN = 3;
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { secondary: 'pistol', equip: 'nades', diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
+settings.map = MAP_ID;
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
 const G = { state: 'menu', time: 0, score: { blue: 0, red: 0 }, actors: [], nades: [], countdown: 0 };
 let loadoutPrimary = 'rifle', loadoutSecondary = 'pistol', loadoutEquip = 'nades';   // fixed at spawn; changes apply at the next respawn
@@ -686,7 +1005,7 @@ function initThree() {
   scene.add(new THREE.AmbientLight(0xffffff, .08));
   sun = new THREE.DirectionalLight(0xfff0dc, 1.7);
   sun.position.set(-30, 50, 18);
-  sun.shadow.camera.left = -58; sun.shadow.camera.right = 58; sun.shadow.camera.top = 46; sun.shadow.camera.bottom = -46;
+  const [shX, shZ] = MAP_META.shadow; sun.shadow.camera.left = -shX; sun.shadow.camera.right = shX; sun.shadow.camera.top = shZ; sun.shadow.camera.bottom = -shZ;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 160;
   sun.shadow.bias = -.0006; sun.shadow.normalBias = .03;
   scene.add(sun); scene.add(sun.target);
@@ -705,6 +1024,9 @@ function initThree() {
   mats.railing = std({ color: 0x5d6166, roughness: .5, metalness: .6 });
   const railMat = std({ color: 0xc9a43a, roughness: .45, metalness: .5 });
   mats.dumpster = std({ color: 0x2f5a3a, roughness: .6, metalness: .3 });
+  mats.paintB = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0x6f8fc8, roughness: .85 });
+  mats.paintR = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0xc87a70, roughness: .85 });
+  mats.contY = std({ map: TEX.contG, bumpMap: TEX.contG, bumpScale: .025, color: 0xe8c070, roughness: .55, metalness: .3 });
   for (const b of BOXES) {
     if (!b.vis) continue;
     if (b.mat === 'railing') {    // pipe railing: top rail, mid rail and posts; the box stays as the collider
@@ -737,7 +1059,37 @@ function initThree() {
   for (const [x0, z0, x1, z1] of INDOOR) plane(x0, z0, x1, z1, TEX.floor, floorMat, .005);
   const lineMat = std({ color: 0xd9b030, roughness: .7, polygonOffset: true, polygonOffsetFactor: -2 });
   const stripe = (x, z, w, d) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat); m.rotation.x = -Math.PI / 2; m.position.set(x, .01, z); m.receiveShadow = true; scene.add(m); };
-  stripe(11, 17.2, 37, .12); stripe(11, 20.8, 37, .12); stripe(4, -2.5, 19, .12); stripe(4, 2.5, 19, .12); stripe(12, -26, 40, .15);
+  if (!DEPOT_MAP) { stripe(11, 17.2, 37, .12); stripe(11, 20.8, 37, .12); stripe(4, -2.5, 19, .12); stripe(4, 2.5, 19, .12); stripe(12, -26, 40, .15); }
+  for (const [x0, z0, x1, z1, col] of PAINT) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), std({ color: col, roughness: .8, transparent: true, opacity: .4, polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, .012, (z0 + z1) / 2); m.receiveShadow = true; scene.add(m);
+  }
+  // wall signs (logistics depot): text painted on a canvas
+  for (const sg of TEXT_SIGNS) {
+    const pw = 512, ph = Math.round(512 * sg.h / sg.w), c = document.createElement('canvas'); c.width = pw; c.height = ph;
+    const g = c.getContext('2d');
+    g.fillStyle = sg.bg; g.fillRect(0, 0, pw, ph);
+    g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = Math.max(6, ph * .05); g.strokeRect(g.lineWidth / 2, g.lineWidth / 2, pw - g.lineWidth, ph - g.lineWidth);
+    g.fillStyle = sg.fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const big = Math.min(ph * (sg.sub ? .5 : .7), pw / Math.max(3, sg.text.length * .62));
+    g.font = `900 ${big}px sans-serif`; g.fillText(sg.text, pw / 2, sg.sub ? ph * .4 : ph / 2);
+    if (sg.sub) { g.font = `700 ${Math.min(ph * .22, big * .5)}px sans-serif`; g.fillText(sg.sub, pw / 2, ph * .78); }
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(sg.w, sg.h), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
+    m.position.set(...sg.pos); m.rotation.y = sg.ry; scene.add(m);
+  }
+  // pipe runs on supports (the collider is an invisible box)
+  const pipeMat = std({ color: 0x6c757a, roughness: .5, metalness: .6 }), legMat2 = std({ color: 0x4f565b, roughness: .6, metalness: .5 });
+  for (const pp of PIPES) {
+    const a = new THREE.Vector3(...pp.from), b = new THREE.Vector3(...pp.to), len = a.distanceTo(b);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(pp.r, pp.r, len, 14), pipeMat);
+    m.position.copy(a).add(b).multiplyScalar(.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    m.castShadow = m.receiveShadow = true; scene.add(m);
+    for (let d = 0; d <= len; d += 6) {
+      const q = a.clone().lerp(b, d / len);
+      scene.add(meshAt(new THREE.BoxGeometry(.15, q.y + pp.r, .9), legMat2, q.x, (q.y + pp.r) / 2, q.z));
+    }
+  }
   for (const [ch, x, z] of SIGNS) {
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const g = c.getContext('2d'); g.strokeStyle = 'rgba(230,200,70,.9)'; g.lineWidth = 14; g.beginPath(); g.arc(128, 128, 110, 0, Math.PI * 2); g.stroke();
@@ -747,8 +1099,9 @@ function initThree() {
     m.rotation.x = -Math.PI / 2; m.rotation.z = Math.PI / 2; m.position.set(x, .015, z); m.receiveShadow = true; scene.add(m);
   }
   const spawnMat = (c) => std({ color: c, roughness: .8, transparent: true, opacity: .35, polygonOffset: true, polygonOffsetFactor: -2 });
-  const sz = new THREE.Mesh(new THREE.PlaneGeometry(6, 18), spawnMat(0x2f5fa6)); sz.rotation.x = -Math.PI / 2; sz.position.set(-43.5, .012, 0); scene.add(sz);
-  const rz = sz.clone(); rz.material = spawnMat(0xa63a2f); rz.position.x = 43.5; scene.add(rz);
+  const [spX, spW, spD] = MAP_META.spawnPaint;
+  const sz = new THREE.Mesh(new THREE.PlaneGeometry(spW, spD), spawnMat(0x2f5fa6)); sz.rotation.x = -Math.PI / 2; sz.position.set(-spX, .012, 0); scene.add(sz);
+  const rz = sz.clone(); rz.material = spawnMat(0xa63a2f); rz.position.x = spX; scene.add(rz);
   // shelving racks with stock on them
   const upr = std({ color: 0x2c4f86, roughness: .5, metalness: .6 }), beam = std({ color: 0xd2661e, roughness: .5, metalness: .5 });
   const shelf = std({ color: 0x7c7f80, roughness: .7, metalness: .5 }), box = std({ map: TEX.crate, roughness: .9 });
@@ -778,10 +1131,11 @@ function initThree() {
   }
   // fuel tanks
   const tankMat = std({ color: 0xd8d6cf, roughness: .45, metalness: .5 }), legMat = std({ color: 0x55585c, roughness: .6, metalness: .5 });
-  for (const [x, z] of TANKS) {
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 3, 28), tankMat); t.position.set(x, 2, z);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(1.5, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), tankMat); cap.position.set(x, 3.5, z); cap.scale.y = .35;
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.6, .5, 28), legMat); base.position.set(x, .25, z);
+  for (const [x, z, r = 1.5, th = 3.5] of TANKS) {
+    const body = th - .5;
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, body, 28), tankMat); t.position.set(x, .5 + body / 2, z);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), tankMat); cap.position.set(x, th, z); cap.scale.y = .35;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(r + .05, r + .1, .5, 28), legMat); base.position.set(x, .25, z);
     for (const m of [t, cap, base]) { m.castShadow = true; m.receiveShadow = true; scene.add(m); }
   }
   // ceiling lamps
@@ -1100,7 +1454,7 @@ const bodyTop = a => (a.crouch ? 1.0 : 1.45);
 function spawnActor(a) {
   const side = a.team === 'blue' ? -1 : 1;
   for (let tries = 0; tries < 40; tries++) {
-    const x = side * (41 + Math.random() * 5), z = (Math.random() - .5) * 16;
+    const x = side * (MAP_META.spawnX[0] + Math.random() * (MAP_META.spawnX[1] - MAP_META.spawnX[0])), z = (Math.random() - .5) * 2 * MAP_META.spawnZ;
     if (!walkable(...cellOf(x, z))) continue;
     if (G.actors.some(o => o !== a && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.2)) continue;
     a.x = x; a.z = z; break;
@@ -1583,6 +1937,12 @@ function hud(dt) {
   for (const f of feed) f.t -= dt;
   if (feed.length && feed[feed.length - 1].t <= 0) { feed.pop(); renderFeed(); }
   drawRadar();
+  if (DEPOT_MAP) {
+    const zn = DEPOT.zones.find(z => me.x >= z.x[0] && me.x <= z.x[1] && me.z >= z.z[0] && me.z <= z.z[1] && (z.yMin === undefined || me.y >= z.yMin));
+    const el = $('zoneTag'), name = zn ? zn.name : '';
+    if (el.textContent !== name) { el.textContent = name; el.style.color = zn ? zn.color : ''; }
+    el.hidden = !name;
+  }
   $('board').hidden = !(keys.Tab && G.state !== 'over');
   if (!$('board').hidden) renderBoard();
 }
@@ -1714,6 +2074,7 @@ function segHtml(key, opts) {
 function settingsHtml(inMatch) {
   return `
     <div class="set">
+      ${inMatch ? '' : `<span class="lab">맵</span>${segHtml('map', [['supply', '보급기지'], ['depot', '물류기지']])}`}
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
       <span class="lab">조준 방식</span>
       ${segHtml('aimMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
@@ -1895,7 +2256,7 @@ function showMenu() {
   $('hud').hidden = true; $('touch').hidden = true;
   $('card').innerHTML = `
     <h1>보급기지 작전<small>TEAM DEATHMATCH 5 VS 5</small></h1>
-    <p>창고와 골목이 얽힌 보급기지에서 아군 봇 4명과 함께 레드 팀 봇 5명을 상대해요. 먼저 ${GOAL}킬을 내거나 5분이 끝났을 때 앞선 팀이 이겨요.</p>
+    <p>${DEPOT_MAP ? '실내 창고 A, 야외 설비장 B, 2층 중앙 건물이 있는 물류기지' : '창고와 골목이 얽힌 보급기지'}에서 아군 봇 4명과 함께 레드 팀 봇 5명을 상대해요. 먼저 ${GOAL}킬을 내거나 5분이 끝났을 때 앞선 팀이 이겨요.</p>
     ${settingsHtml(false)}
     ${controlsHtml()}
     <button class="btn" type="button" data-act="start">전투 시작</button>`;
@@ -1907,6 +2268,7 @@ $('overlay').addEventListener('click', e => {
   if (s) {
     settings[s.dataset.set] = s.dataset.val; saveSettings();
     s.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === s)));
+    if (s.dataset.set === 'map' && s.dataset.val !== MAP_ID) { s.closest('.card').style.opacity = .5; location.hash = `map=${s.dataset.val}`; location.reload(); return; }
     if (s.dataset.set === 'quality') applyQuality();
     if (s.dataset.set === 'aimMode') setAim(false);
     if (s.dataset.set === 'crouchMode') { crouchToggle = false; touchCrouch = false; }
@@ -2007,8 +2369,9 @@ function render(dt) {
     if (me) hud(dt);
   } else {
     const t = performance.now() / 1000 * .12;
-    camera.position.set(28 + Math.sin(t) * .5, 2.1, 18.8);
-    camera.rotation.set(-.05, Math.PI / 2 + Math.sin(t * .6) * .25, 0);
+    const [cx, cy, cz, cyaw] = MAP_META.menuCam;
+    camera.position.set(cx + Math.sin(t) * .5, cy, cz);
+    camera.rotation.set(-.05, cyaw + Math.sin(t * .6) * .25, 0);
     camera.fov = 65; camera.updateProjectionMatrix();
     renderer.clear(); renderer.render(scene, camera);
   }
