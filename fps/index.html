@@ -72,6 +72,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .center-msg { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 6px #000; }
 .center-msg b { display: block; font: 700 46px/1 var(--font-num); letter-spacing: .04em; }
 .center-msg span { font-size: 15px; }
+.pickmsg { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 4px 12px; border-radius: 8px; background: var(--hud); font-weight: 700; font-size: 13px; color: var(--ok); white-space: nowrap; }
 .reloadmsg { position: fixed; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); font-weight: 700; font-size: 13px; color: var(--amber); text-shadow: 0 1px 3px #000; }
 
 .board { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100% - 32px)); padding: 12px; border-radius: 12px; background: rgba(14, 16, 14, .9); display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -127,9 +128,10 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
 .result { font: 700 42px/1 var(--font-num); }
 .result .b { color: var(--blue); } .result .r { color: var(--red); }
 .err { color: #ffb4a8; }
-@media (max-height: 520px) {
+@media (max-height: 520px) { .card details { display: none; } }
+@media (max-height: 720px) {
   .overlay { padding: 8px; }
-  .card .keys, .card details, .card > p { display: none; }
+  .card > p { display: none; }
   .card { gap: 8px; padding-block: 12px; }
   .card h1 { font-size: 24px; } .card h1 small { margin-top: 2px; }
   .set { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; row-gap: 6px; }
@@ -158,6 +160,7 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
   <div class="hp"><b id="hpNum">100</b><div class="bar"><i id="hpBar"></i></div></div>
   <div class="ammo"><b id="ammoMag">30</b> <span id="ammoRes">/ 120</span><small id="wName">소총 · 수류탄 2</small></div>
   <div class="reloadmsg" id="reloadMsg" hidden>재장전 중</div>
+  <div class="pickmsg" id="pickMsg" hidden></div>
   <div class="center-msg" id="centerMsg" hidden><b id="cmBig"></b><span id="cmSmall"></span></div>
   <div class="board" id="board" hidden></div>
 </div>
@@ -181,7 +184,7 @@ summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted
 <script>
 'use strict';
 // =============== map: enclosed supply base ===============
-const MX = 36, MZ = 26;                     // half extents (meters)
+const MX = 50, MZ = 34;                     // half extents (meters)
 const BOXES = [];
 function addBox(cx, cz, sx, sz, h, mat, y0 = 0, vis = true) {
   BOXES.push({ x0: cx - sx / 2, x1: cx + sx / 2, z0: cz - sz / 2, z1: cz + sz / 2, y0, y1: y0 + h, mat, vis });
@@ -192,49 +195,55 @@ const LAMPS = [];       // [x, y, z] ceiling lights
 const RACKS = [];       // shelving visuals
 const TRUCKS = [];      // [cx, cz, dir]
 const INDOOR = [];      // floor areas with an indoor floor
+const TANKS = [];       // fuel tank visuals [x, z]
 (function buildMap() {
   // outer perimeter
   addBox(0, -MZ - .5, MX * 2 + 2, 1, 8, 'metalwall'); addBox(0, MZ + .5, MX * 2 + 2, 1, 8, 'metalwall');
   addBox(-MX - .5, 0, 1, MZ * 2, 8, 'metalwall'); addBox(MX + .5, 0, 1, MZ * 2, 8, 'metalwall');
 
-  // central warehouse x -12..12, z -9..9, roofed, doors on every side
-  addPair(-12, -5.25, .5, 7.5, 6, 'whwall'); addPair(-12, 5.25, .5, 7.5, 6, 'whwall'); addPair(-12, 0, .5, 3, 3, 'whwall', 3);
-  addPair(-9.5, 9, 5, .5, 6, 'whwall'); addPair(9.5, 9, 5, .5, 6, 'whwall');
-  addBox(0, 9, 10, .5, 6, 'whwall'); addBox(0, -9, 10, .5, 6, 'whwall');
-  addPair(-6, 9, 2, .5, 3, 'whwall', 3); addPair(6, 9, 2, .5, 3, 'whwall', 3);
-  addBox(0, 0, 24.6, 18.6, .35, 'roof', 6);
-  INDOOR.push([-12, -9, 12, 9]);
-  // shelving rows and cover inside
-  for (const [cx, cz] of [[-5, 4], [-5, -4]]) { addPair(cx, cz, 6, 1, 3.2, 'rack', 0, false); RACKS.push([cx, cz, 6, 1, 3.2], [-cx, -cz, 6, 1, 3.2]); }
-  addPair(-9, 0, .6, .6, 6, 'concrete'); addPair(0, 6.5, .6, .6, 6, 'concrete');
+  // central warehouse x -14..14, z -10..10: roofed, doors on all four sides
+  addPair(-14, -5.75, .5, 8.5, 6.5, 'whwall'); addPair(-14, 5.75, .5, 8.5, 6.5, 'whwall'); addPair(-14, 0, .5, 3, 3.5, 'whwall', 3);
+  addPair(-11.25, 10, 5.5, .5, 6.5, 'whwall'); addPair(11.25, 10, 5.5, .5, 6.5, 'whwall');
+  addBox(0, 10, 13, .5, 6.5, 'whwall'); addBox(0, -10, 13, .5, 6.5, 'whwall');
+  addPair(-7.5, 10, 2, .5, 3.5, 'whwall', 3); addPair(7.5, 10, 2, .5, 3.5, 'whwall', 3);
+  addBox(0, 0, 28.6, 20.6, .35, 'roof', 6.5);
+  INDOOR.push([-14, -10, 14, 10]);
+  for (const [cx, cz] of [[-8.5, 4.5], [-8.5, -4.5], [-2, 6.6]]) { addPair(cx, cz, 6, 1, 3.2, 'rack', 0, false); RACKS.push([cx, cz, 6, 1, 3.2], [-cx, -cz, 6, 1, 3.2]); }
+  addPair(-11.5, 0, .6, .6, 6.5, 'concrete'); addPair(-4.5, 0, .6, .6, 6.5, 'concrete');
   addBox(0, 0, 1.4, 1.4, 1.4, 'crate'); addPair(-1.4, .6, 1.4, 1.4, 1.4, 'crate'); addPair(-.7, .3, 1.4, 1.4, 1.4, 'crate', 1.4);
-  addPair(-10, 6.8, 1.4, 1.4, 1.4, 'crate'); addPair(-10, -7, 1.4, 1.4, 1.4, 'crate');
-  for (const [x, z] of [[-6, -4.5], [6, -4.5], [-6, 4.5], [6, 4.5]]) LAMPS.push([x, 5.7, z]);
+  addPair(-12.4, 8.4, 1.4, 1.4, 1.4, 'crate'); addPair(-12.4, -8.4, 1.4, 1.4, 1.4, 'crate'); addPair(-12.4, -8.4, 1.4, 1.4, 1.4, 'crate', 1.4);
+  for (const [x, z] of [[-9, 0], [9, 0], [-3, -3.5], [3, 3.5], [-3, 3.5], [3, -3.5]]) LAMPS.push([x, 6.2, z]);
 
-  // guard room (enterable, window facing the corridor) and a solid block, per side
-  addPair(-20.5, 9, 7.5, .5, 6, 'brick'); addPair(-24, 6, .5, 6, 6, 'brick');
-  addPair(-17, 4, .5, 2, 6, 'brick'); addPair(-17, 8, .5, 2, 6, 'brick'); addPair(-17, 6, .5, 2, 3, 'brick', 3);
-  addPair(-23, 3, 2, .5, 6, 'brick'); addPair(-18, 3, 2, .5, 6, 'brick');
-  addPair(-20.5, 3, 3, .5, 1, 'brick'); addPair(-20.5, 3, 3, .5, 3.8, 'brick', 2.2);
-  addPair(-20.5, 6, 7.6, 6.6, .3, 'roof', 6);
-  addPair(-22.6, 7.6, 1.2, 1.2, 1.2, 'crate');
-  INDOOR.push([-24, 3, -17, 9], [17, -9, 24, -3]);
-  LAMPS.push([-20.5, 5.7, 6], [20.5, 5.7, -6]);
-  addPair(-20.5, -6, 7, 6, 6.5, 'concrete');
-  addPair(-14.5, -2.2, 1.2, 1.2, 1.2, 'crate'); addPair(-14.5, -1, 1.2, 1.2, 1.2, 'crate', 1.2);
+  // guard room (enterable, window toward the corridor) and a solid block beside it
+  addPair(-24.5, 9, 7.5, .5, 6, 'brick'); addPair(-28, 6, .5, 6, 6, 'brick');
+  addPair(-21, 4, .5, 2, 6, 'brick'); addPair(-21, 8, .5, 2, 6, 'brick'); addPair(-21, 6, .5, 2, 3, 'brick', 3);
+  addPair(-27, 3, 2, .5, 6, 'brick'); addPair(-22, 3, 2, .5, 6, 'brick');
+  addPair(-24.5, 3, 3, .5, 1, 'brick'); addPair(-24.5, 3, 3, .5, 3.8, 'brick', 2.2);
+  addPair(-24.5, 6, 7.6, 6.6, .3, 'roof', 6);
+  addPair(-26.6, 7.6, 1.2, 1.2, 1.2, 'crate');
+  INDOOR.push([-28, 3, -21, 9], [21, -9, 28, -3]);
+  LAMPS.push([-24.5, 5.7, 6], [24.5, 5.7, -6]);
+  addPair(-24.5, -6, 7, 6, 6.5, 'concrete');
+  addPair(-18, -2.2, 1.2, 1.2, 1.2, 'crate'); addPair(-18, -1, 1.2, 1.2, 1.2, 'crate', 1.2); addPair(-17.5, 3.5, 3, .6, 1, 'barrier');
 
-  // north and south yards: long storage block against the wall, a parked truck, crates and barriers
-  addPair(0, 22.5, 32, 7, 7, 'concrete');
-  addPair(-4, 14, 8, 2.6, 2.7, 'trailer', .9); addPair(1.6, 14, 2.4, 2.5, 2.3, 'cab', .5);
-  TRUCKS.push([-4, 14, 1], [4, -14, -1]);
-  addPair(-14, 12, 1.4, 1.4, 1.4, 'crate'); addPair(-14, 12, 1.4, 1.4, 1.4, 'crate', 1.4); addPair(-12.5, 12.2, 1.4, 1.4, 1.4, 'crate');
-  addPair(9, 16.6, 1.4, 1.4, 1.4, 'crate'); addPair(10.4, 16.6, 1.4, 1.4, 1.4, 'crate');
-  addPair(13, 11.6, 3, .6, 1, 'barrier'); addPair(-22, 15, .6, 3, 1, 'barrier'); addPair(-24, 22, 1.4, 1.4, 1.4, 'crate');
-  addPair(-19, 22.5, 3, .6, 1, 'barrier');
+  // north yard (mirrored to the south): storage block, parked truck, open shed, stacked containers
+  addPair(0, 31, 40, 6, 7, 'concrete');
+  addPair(-6, 17, 8, 2.6, 2.7, 'trailer', .9); addPair(-.4, 17, 2.4, 2.5, 2.3, 'cab', .5);
+  TRUCKS.push([-6, 17, 1], [6, -17, -1]);
+  for (const [x, z] of [[-29.6, 20.4], [-20.4, 20.4], [-29.6, 27.6], [-20.4, 27.6]]) addPair(x, z, .4, .4, 4.5, 'concrete');
+  addPair(-25, 24, 10.4, 8.4, .3, 'roof', 4.5);
+  addPair(-27, 23, 1.4, 1.4, 1.4, 'crate'); addPair(-27, 23, 1.4, 1.4, 1.4, 'crate', 1.4); addPair(-23, 25.5, 1.4, 1.4, 1.4, 'crate'); addPair(-24, 21.6, 3, .6, 1, 'barrier');
+  addPair(12, 22.5, 6, 2.5, 2.6, 'contR'); addPair(12, 22.5, 6, 2.5, 2.6, 'contB', 2.6); addPair(4, 25, 2.5, 6, 2.6, 'contG');
+  addPair(-16, 13.4, 1.4, 1.4, 1.4, 'crate'); addPair(-16, 13.4, 1.4, 1.4, 1.4, 'crate', 1.4); addPair(-14.5, 13.6, 1.4, 1.4, 1.4, 'crate');
+  addPair(17, 13.5, 3, .6, 1, 'barrier'); addPair(21, 18, 1.4, 1.4, 1.4, 'crate'); addPair(-34, 16, .6, 3, 1, 'barrier');
+  addPair(-36, 26, 1.4, 1.4, 1.4, 'crate'); addPair(30, 16, 2.5, 6, 2.6, 'contB');
+  // fuel tanks in the yard corner (box colliders, round visuals)
+  addPair(-42, 27, 3.2, 3.2, 3.6, 'tank', 0, false); TANKS.push([-42, 27], [42, -27]);
 
-  // spawn cover
-  addPair(-28, -5, .8, 4, 1.1, 'sandbag'); addPair(-28, 5, .8, 4, 1.1, 'sandbag');
-  addPair(-30, 14, .8, 3, 1.1, 'sandbag'); addPair(-30, -14, .8, 3, 1.1, 'sandbag');
+  // spawn base: wall line with three exits, sandbags and buildings at the back
+  addPair(-38, -6.5, .6, 7, 2.2, 'concrete'); addPair(-38, 6.5, .6, 7, 2.2, 'concrete');
+  addPair(-35, 0, .8, 3, 1.1, 'sandbag'); addPair(-33, -14, .8, 3, 1.1, 'sandbag'); addPair(-33, 14, .8, 3, 1.1, 'sandbag');
+  addPair(-47.5, -18, 5, 8, 5, 'brick'); addPair(-47.5, 18, 5, 8, 5, 'brick');
 })();
 
 // =============== navigation grid (1 m cells) ===============
@@ -305,7 +314,7 @@ function findPath(sx, sz, tx, tz) {
   return out.map(c => cellCenter(c[0], c[1]));
 }
 const POIS = [];
-for (let z = -22; z <= 22; z += 4) for (let x = -30; x <= 30; x += 4) { if (walkable(...cellOf(x, z))) POIS.push([x, z]); }
+for (let z = -30; z <= 30; z += 4) for (let x = -44; x <= 44; x += 4) { if (walkable(...cellOf(x, z))) POIS.push([x, z]); }
 
 // =============== ray tests ===============
 function rayBox(o, d, b, maxT) {
@@ -362,11 +371,12 @@ const DIFF = {
 const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈', '코브라', '하이에나', '독사', '까마귀'] };
 const GOAL = 40, MATCH_TIME = 300, RESPAWN = 3;
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
 const G = { state: 'menu', time: 0, score: { blue: 0, red: 0 }, actors: [], nades: [], countdown: 0 };
-const slots = () => [settings.primary, 'pistol', 'knife'];
+let loadoutPrimary = 'rifle';   // chosen at spawn; changing the setting mid-life applies at the next respawn
+const slots = () => [loadoutPrimary, 'pistol', 'knife'];
 
 // =============== procedural textures ===============
 function hash3(x, y, s) {
@@ -469,6 +479,12 @@ function buildTextures() {
     const n = fbm(u, v, 16, 2, s + 9) * 14;
     return [c[0] + n, c[1] + n, c[2] + n];
   }, 1);
+  const container = (c, s) => pixTex(S, (u, v) => {
+    const rib = .5 + .5 * Math.sin(u * Math.PI * 2 * 18), n = fbm(u, v, 4, 4, s), rust = clamp(fbm(u, v * .3, 8, 3, s + 3) * 1.7 - 1.05);
+    const k = (.78 + rib * .22) * (1 - clamp(v - .75) * .6) + n * .12;
+    return [mix(c[0] * k, 110, rust), mix(c[1] * k, 62, rust), mix(c[2] * k, 36, rust)];
+  }, 2.6);
+  TEX.contR = container([150, 48, 38], 500); TEX.contB = container([40, 82, 140], 510); TEX.contG = container([58, 104, 62], 520);
   TEX.camoBlue = camo([[52, 60, 74], [86, 98, 116], [120, 130, 142], [70, 80, 96]], 200);
   TEX.camoRed = camo([[120, 98, 70], [168, 146, 108], [92, 74, 54], [146, 122, 88]], 300);
 }
@@ -496,7 +512,7 @@ const std = (o) => {
   return m;
 };
 function qualityParams() {
-  return { high: { shadow: 2048, ratio: 1.75, lights: 6 }, medium: { shadow: 1024, ratio: 1.25, lights: 3 }, low: { shadow: 0, ratio: 1, lights: 0 } }[settings.quality] || { shadow: 1024, ratio: 1.25, lights: 3 };
+  return { high: { shadow: 4096, ratio: 1.75, lights: 8 }, medium: { shadow: 2048, ratio: 1.25, lights: 4 }, low: { shadow: 0, ratio: 1, lights: 0 } }[settings.quality] || { shadow: 1024, ratio: 1.25, lights: 3 };
 }
 function applyQuality() {
   const q = qualityParams();
@@ -516,7 +532,7 @@ function initThree() {
   renderer.toneMappingExposure = 1.05;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(new THREE.Color(0x9ea7ae).convertSRGBToLinear(), 35, 120);
+  scene.fog = new THREE.Fog(new THREE.Color(0x9ea7ae).convertSRGBToLinear(), 45, 150);
   camera = new THREE.PerspectiveCamera(75, 1, .05, 400);
   camera.rotation.order = 'YXZ';
   // overcast sky dome
@@ -529,9 +545,9 @@ function initThree() {
   scene.add(new THREE.HemisphereLight(0xc4ccd6, 0x4d453b, .65));
   scene.add(new THREE.AmbientLight(0xffffff, .08));
   sun = new THREE.DirectionalLight(0xfff0dc, 1.7);
-  sun.position.set(-22, 40, 14);
-  sun.shadow.camera.left = -45; sun.shadow.camera.right = 45; sun.shadow.camera.top = 40; sun.shadow.camera.bottom = -40;
-  sun.shadow.camera.near = 1; sun.shadow.camera.far = 120;
+  sun.position.set(-30, 50, 18);
+  sun.shadow.camera.left = -58; sun.shadow.camera.right = 58; sun.shadow.camera.top = 46; sun.shadow.camera.bottom = -46;
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 160;
   sun.shadow.bias = -.0006; sun.shadow.normalBias = .03;
   scene.add(sun); scene.add(sun.target);
   buildTextures();
@@ -541,6 +557,7 @@ function initThree() {
     brick: { map: TEX.brick, roughness: .9 }, roof: { map: TEX.roof, roughness: .8, metalness: .3 }, crate: { map: TEX.crate, roughness: .85 },
     trailer: { map: TEX.trailer, roughness: .55, metalness: .3 }, cab: { map: TEX.cab, roughness: .4, metalness: .4 }, sandbag: { map: TEX.sandbag, roughness: 1 },
     barrier: { map: TEX.barrier, roughness: .9 },
+    contR: { map: TEX.contR, roughness: .55, metalness: .3 }, contB: { map: TEX.contB, roughness: .55, metalness: .3 }, contG: { map: TEX.contG, roughness: .55, metalness: .3 },
   };
   const mats = {};
   for (const k in P) { const p = P[k]; mats[k] = std({ ...p, bumpMap: p.map, bumpScale: .025 }); }
@@ -563,10 +580,10 @@ function initThree() {
   for (const [x0, z0, x1, z1] of INDOOR) plane(x0, z0, x1, z1, TEX.floor, floorMat, .005);
   const lineMat = std({ color: 0xd9b030, roughness: .7, polygonOffset: true, polygonOffsetFactor: -2 });
   const stripe = (x, z, w, d) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat); m.rotation.x = -Math.PI / 2; m.position.set(x, .01, z); m.receiveShadow = true; scene.add(m); };
-  for (const s of [1, -1]) { stripe(0, s * 2.2, 22, .12); stripe(-6 * s, s * 6, .12, 5); stripe(6 * s, s * 6, .12, 5); stripe(0, s * 12, 50, .15); }
+  for (const s of [1, -1]) { stripe(0, s * 2.4, 26, .12); stripe(-5.2 * s, s * 7, .12, 5); stripe(5.2 * s, s * 7, .12, 5); stripe(0, s * 12.5, 56, .15); stripe(-34 * s, 0, .15, 50); }
   const spawnMat = (c) => std({ color: c, roughness: .8, transparent: true, opacity: .35, polygonOffset: true, polygonOffsetFactor: -2 });
-  const sz = new THREE.Mesh(new THREE.PlaneGeometry(6, 18), spawnMat(0x2f5fa6)); sz.rotation.x = -Math.PI / 2; sz.position.set(-33, .012, 0); scene.add(sz);
-  const rz = sz.clone(); rz.material = spawnMat(0xa63a2f); rz.position.x = 33; scene.add(rz);
+  const sz = new THREE.Mesh(new THREE.PlaneGeometry(6, 18), spawnMat(0x2f5fa6)); sz.rotation.x = -Math.PI / 2; sz.position.set(-44.5, .012, 0); scene.add(sz);
+  const rz = sz.clone(); rz.material = spawnMat(0xa63a2f); rz.position.x = 44.5; scene.add(rz);
   // shelving racks with stock on them
   const upr = std({ color: 0x2c4f86, roughness: .5, metalness: .6 }), beam = std({ color: 0xd2661e, roughness: .5, metalness: .5 });
   const shelf = std({ color: 0x7c7f80, roughness: .7, metalness: .5 }), box = std({ map: TEX.crate, roughness: .9 });
@@ -593,6 +610,14 @@ function initThree() {
     w.rotation.x = Math.PI / 2; w.position.set(cx + dx * dir, .45, cz + s * 1.15); w.castShadow = true; scene.add(w);
     const h = new THREE.Mesh(new THREE.CylinderGeometry(.22, .22, .37, 12), hub);
     h.rotation.x = Math.PI / 2; h.position.copy(w.position); scene.add(h);
+  }
+  // fuel tanks
+  const tankMat = std({ color: 0xd8d6cf, roughness: .45, metalness: .5 }), legMat = std({ color: 0x55585c, roughness: .6, metalness: .5 });
+  for (const [x, z] of TANKS) {
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 3, 28), tankMat); t.position.set(x, 2, z);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(1.5, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), tankMat); cap.position.set(x, 3.5, z); cap.scale.y = .35;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.6, .5, 28), legMat); base.position.set(x, .25, z);
+    for (const m of [t, cap, base]) { m.castShadow = true; m.receiveShadow = true; scene.add(m); }
   }
   // ceiling lamps
   const lampMat = std({ color: 0x222222, emissive: 0xfff1cf, emissiveIntensity: 1.6 });
@@ -625,6 +650,7 @@ function initModelMats() {
     gun: std({ color: 0x2c2f33, roughness: .5, metalness: .45 }), gun2: std({ color: 0x3c4046, roughness: .55, metalness: .35 }),
     polymer: std({ color: 0x2e2e2b, roughness: .85 }), wood: std({ color: 0x5c3b22, roughness: .7 }), tan: std({ color: 0x8a7a5c, roughness: .75 }),
     skin: std({ color: 0xc89474, roughness: .7 }), boot: std({ color: 0x1c1a17, roughness: .8 }), glove: std({ color: 0x2b2a26, roughness: .85 }),
+    ammoBox: std({ color: 0x4b5a32, roughness: .7 }), pickRing: new THREE.MeshBasicMaterial({ color: 0xffd25a, transparent: true, opacity: .7, depthWrite: false }),
     blade: std({ color: 0xc9ced6, roughness: .25, metalness: .9 }), pad: std({ color: 0x24251f, roughness: .85 }),
     redDot: new THREE.MeshBasicMaterial({ color: 0xff2020 }), goggle: std({ color: 0x111417, roughness: .2, metalness: .6 }),
     camo: { blue: std({ map: TEX.camoBlue, roughness: .9 }), red: std({ map: TEX.camoRed, roughness: .9 }) },
@@ -846,7 +872,7 @@ function sfx(kind, vol = 1) {
     o.connect(og); og.connect(AC.destination); o.start(t); o.stop(t + dur);
   } else {
     const o = AC.createOscillator(); o.type = kind === 'hs' ? 'triangle' : 'square';
-    o.frequency.value = kind === 'hs' ? 1500 : kind === 'hit' ? 900 : kind === 'empty' ? 300 : 500;
+    o.frequency.value = kind === 'hs' ? 1500 : kind === 'hit' ? 900 : kind === 'empty' ? 300 : kind === 'pick' ? 700 : 500;
     const dur = kind === 'hs' ? .18 : .05;
     out.gain.setValueAtTime(vol * .12, t); out.gain.exponentialRampToValueAtTime(.001, t + dur);
     o.connect(out); o.start(t); o.stop(t + dur);
@@ -871,7 +897,7 @@ const bodyTop = a => (a.crouch ? 1.0 : 1.45);
 function spawnActor(a) {
   const side = a.team === 'blue' ? -1 : 1;
   for (let tries = 0; tries < 40; tries++) {
-    const x = side * (31 + Math.random() * 4), z = (Math.random() - .5) * 16;
+    const x = side * (42 + Math.random() * 5), z = (Math.random() - .5) * 18;
     if (!walkable(...cellOf(x, z))) continue;
     if (G.actors.some(o => o !== a && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.2)) continue;
     a.x = x; a.z = z; break;
@@ -895,6 +921,7 @@ function damage(victim, amount, attacker, weapon, head, from) {
   victim.hp = 0; victim.dead = true; victim.deaths++; victim.respawn = RESPAWN;
   if (attacker && attacker !== victim) { attacker.kills++; G.score[attacker.team]++; }
   pushFeed(attacker || victim, victim, weapon, head);
+  dropPickup(victim);
   if (!victim.isMe) victim.ai.deathT = 0;
   else { showCenter('사망', `${attacker && attacker !== victim ? attacker.name + '에게 당했어요' : '자폭했어요'} · ${RESPAWN}초 후 부활`); setAim(false); }
   if (G.score.blue >= GOAL || G.score.red >= GOAL) endMatch();
@@ -912,7 +939,8 @@ function setAim(v) {
 }
 function resetLoadout() {
   for (const k of ['rifle', 'pistol', 'sniper', 'knife']) { const w = WEAPONS[k]; ammo[k] = w.melee ? { mag: 0, res: 0 } : { mag: w.mag, res: w.res }; }
-  nades = 2; reloadT = 0; fireCd = 0; prevWeapon = 'pistol'; selectWeapon(settings.primary, true);
+  loadoutPrimary = settings.primary;
+  nades = 2; reloadT = 0; fireCd = 0; prevWeapon = 'pistol'; crouchToggle = false; selectWeapon(loadoutPrimary, true);
 }
 function selectWeapon(k, instant) {
   if (k === weapon && !instant) return;
@@ -942,7 +970,7 @@ function moveAxis(a, ax, d, h) {
 }
 const keys = {};
 const joy = { x: 0, y: 0 };
-let jumpHeld = false, touchCrouch = false;
+let jumpHeld = false, touchCrouch = false, crouchToggle = false;
 function updatePlayer(dt) {
   if (me.dead) return;
   me.protect = Math.max(0, me.protect - dt);
@@ -950,7 +978,7 @@ function updatePlayer(dt) {
   if (keys.KeyW) fz += 1; if (keys.KeyS) fz -= 1; if (keys.KeyA) fx -= 1; if (keys.KeyD) fx += 1;
   fx += joy.x; fz -= joy.y;
   const len = Math.hypot(fx, fz); if (len > 1) { fx /= len; fz /= len; }
-  const wantCrouch = keys.ControlLeft || keys.KeyC || touchCrouch;
+  const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : (keys.ControlLeft || keys.KeyC || touchCrouch);
   if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
   const spd = (me.crouch ? 2.4 : aiming ? 3.2 : (keys.ShiftLeft ? 3 : 5.4)) * (weapon === 'knife' ? 1.15 : weapon === 'sniper' ? .92 : 1);
@@ -1096,6 +1124,39 @@ function updateNades(dt) {
     }
   }
 }
+
+// =============== scavenger: dead soldiers drop their gun and ammo ===============
+const PICKUPS = [], PICK_LIFE = 30, MAX_RES = { rifle: 180, sniper: 30, pistol: 72 };
+function dropPickup(a) {
+  if (PICKUPS.length >= 14) removePickup(0);
+  const g = new THREE.Group();
+  const gun = rifleModel(1.05); gun.rotation.set(0, Math.random() * 6, Math.PI / 2); gun.position.y = .05; g.add(gun);
+  const box = meshAt(new THREE.BoxGeometry(.3, .16, .2), MAT.ammoBox, .25, .08, .2); g.add(box);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(.45, .55, 28), MAT.pickRing); ring.rotation.x = -Math.PI / 2; ring.position.y = .02; g.add(ring);
+  g.traverse(o => { if (o.isMesh && o !== ring) o.castShadow = true; });
+  g.position.set(a.x, 0, a.z); scene.add(g);
+  PICKUPS.push({ x: a.x, z: a.z, t: 0, mesh: g, ring });
+}
+function removePickup(i) { scene.remove(PICKUPS[i].mesh); PICKUPS.splice(i, 1); }
+function clearPickups() { while (PICKUPS.length) removePickup(0); }
+function updatePickups(dt) {
+  for (let i = PICKUPS.length - 1; i >= 0; i--) {
+    const p = PICKUPS[i]; p.t += dt;
+    p.ring.material.opacity = .55 + .3 * Math.sin(p.t * 5);
+    if (p.t > PICK_LIFE) { removePickup(i); continue; }
+    if (me.dead || Math.hypot(me.x - p.x, me.z - p.z) > 1.3 || me.y > 1) continue;
+    const got = [];
+    const add = (k, n) => { const before = ammo[k].res; ammo[k].res = Math.min(MAX_RES[k], before + n); if (ammo[k].res > before) got.push(`${WEAPONS[k].n} +${ammo[k].res - before}`); };
+    add(loadoutPrimary, loadoutPrimary === 'sniper' ? 10 : 60);
+    add('pistol', 24);
+    if (nades < 3) { nades++; got.push('수류탄 +1'); }
+    if (!got.length) continue;        // already full: leave it for later
+    removePickup(i);
+    showPick(got.join(' · ')); sfx('pick', .8);
+  }
+}
+let pickTimer = 0;
+function showPick(text) { const el = $('pickMsg'); el.textContent = `탄약 획득 ${text}`; el.hidden = false; clearTimeout(pickTimer); pickTimer = setTimeout(() => { el.hidden = true; }, 1600); }
 
 // =============== bots ===============
 const wrap = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -1305,6 +1366,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Digit3') selectWeapon(sl[2]);
   if (e.code === 'KeyQ') selectWeapon(prevWeapon);
   if (e.code === 'KeyR') startReload();
+  if ((e.code === 'KeyC' || e.code === 'ControlLeft') && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle;
   if (e.code === 'KeyG' && nades > 0) { nades--; throwNade(me); }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1372,7 +1434,12 @@ $('tAim').addEventListener('pointerup', () => aimPress(false)); $('tAim').addEve
 tap('tReload', startReload);
 tap('tSwap', () => { const sl = slots(), i = sl.indexOf(weapon); selectWeapon(sl[(i + 1) % sl.length]); });
 tap('tNade', () => { if (nades > 0) { nades--; throwNade(me); } });
-tap('tCrouch', () => { touchCrouch = !touchCrouch; $('tCrouch').classList.toggle('on', touchCrouch); });
+$('tCrouch').addEventListener('pointerdown', e => {
+  e.preventDefault(); if (!playing() || me.dead) return;
+  if (settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; else touchCrouch = true;
+});
+const crouchUp = () => { touchCrouch = false; };
+$('tCrouch').addEventListener('pointerup', crouchUp); $('tCrouch').addEventListener('pointercancel', crouchUp);
 $('tJump').addEventListener('pointerdown', e => { e.preventDefault(); jumpHeld = true; });
 $('tJump').addEventListener('pointerup', () => { jumpHeld = false; }); $('tJump').addEventListener('pointercancel', () => { jumpHeld = false; });
 $('tMenu').addEventListener('click', () => pauseGame());
@@ -1395,6 +1462,8 @@ function settingsHtml(inMatch) {
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
       <span class="lab">조준 방식</span>
       ${segHtml('aimMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
+      <span class="lab">앉기 방식</span>
+      ${segHtml('crouchMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
       <div class="row"><label for="sens">마우스 감도</label><input id="sens" type="range" min="0.2" max="3" step="0.05" value="${settings.sens}"><output id="sensV">${settings.sens.toFixed(2)}</output></div>
       <div class="row"><label for="adsSens">조준 감도</label><input id="adsSens" type="range" min="0.2" max="2" step="0.05" value="${settings.adsSens}"><output id="adsSensV">${settings.adsSens.toFixed(2)}</output></div>
       <span class="lab">그래픽</span>
@@ -1432,6 +1501,7 @@ function controlsHtml() {
 function setupMatch() {
   for (const a of G.actors) if (a.mesh) scene.remove(a.mesh);
   for (const p of G.nades) scene.remove(p.mesh);
+  clearPickups();
   G.actors = []; G.nades = []; G.score = { blue: 0, red: 0 }; G.time = 0; feed.length = 0; renderFeed();
   me = newActor('blue', '나', true);
   for (const n of NAMES.blue) newActor('blue', n, false);
@@ -1498,6 +1568,7 @@ $('overlay').addEventListener('click', e => {
     s.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === s)));
     if (s.dataset.set === 'quality') applyQuality();
     if (s.dataset.set === 'aimMode') setAim(false);
+    if (s.dataset.set === 'crouchMode') { crouchToggle = false; touchCrouch = false; }
     return;
   }
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -1535,6 +1606,7 @@ function step(dt) {
   updatePlayer(dt);
   for (const a of G.actors) if (!a.isMe) updateBot(a, dt);
   updateNades(dt);
+  updatePickups(dt);
 }
 function render(dt) {
   if (G.state !== 'menu') {
@@ -1571,7 +1643,7 @@ function render(dt) {
     if (me) hud(dt);
   } else {
     const t = performance.now() / 1000 * .12;
-    camera.position.set(-10.6 + Math.sin(t) * .6, 2.2, -.4);
+    camera.position.set(-12.6 + Math.sin(t) * .6, 2.2, -.4);
     camera.rotation.set(-.06, -Math.PI / 2 + Math.sin(t * .6) * .35, 0);
     camera.fov = 65; camera.updateProjectionMatrix();
     renderer.clear(); renderer.render(scene, camera);
