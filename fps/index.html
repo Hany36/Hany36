@@ -829,7 +829,7 @@ const DIFF = {
 const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈', '코브라', '하이에나', '독사', '까마귀'] };
 const GOAL = 40, MATCH_TIME = 300, RESPAWN = 3;
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', sens: 1, adsSens: 1, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', sens: 1, adsSens: 1, volume: .8, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 settings.map = MAP_ID;
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
@@ -1391,19 +1391,22 @@ function updateFx(dt) {
 }
 
 // =============== sound (synthesized) ===============
-let AC = null, noiseBuf = null, lastBotSnd = 0;
+let AC = null, MASTER = null, noiseBuf = null, lastBotSnd = 0;
+// every sound goes through MASTER, whose gain is the volume setting (0 = muted)
+function applyVolume() { if (MASTER) { MASTER.gain.cancelScheduledValues(0); MASTER.gain.value = settings.volume * settings.volume; } }
 function audioInit() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
+    MASTER = AC.createGain(); MASTER.connect(AC.destination); MASTER.gain.value = settings.volume * settings.volume;
     noiseBuf = AC.createBuffer(1, AC.sampleRate * .5, AC.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   } catch (e) { AC = null; }
 }
 function sfx(kind, vol = 1) {
-  if (!AC || vol < .02) return;
-  const t = AC.currentTime, out = AC.createGain(); out.connect(AC.destination);
+  if (!AC || vol < .02 || settings.volume <= 0) return;
+  const t = AC.currentTime, out = AC.createGain(); out.connect(MASTER);
   if (kind === 'shot' || kind === 'boom' || kind === 'snipe') {
     const src = AC.createBufferSource(); src.buffer = noiseBuf;
     const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = kind === 'boom' ? 400 : kind === 'snipe' ? 1400 : 2400;
@@ -1412,19 +1415,19 @@ function sfx(kind, vol = 1) {
     src.connect(f); f.connect(out); src.start(t); src.stop(t + dur);
     const o = AC.createOscillator(); o.frequency.setValueAtTime(kind === 'boom' ? 70 : 140, t); o.frequency.exponentialRampToValueAtTime(40, t + dur);
     const og = AC.createGain(); og.gain.setValueAtTime(vol * .5, t); og.gain.exponentialRampToValueAtTime(.001, t + dur);
-    o.connect(og); og.connect(AC.destination); o.start(t); o.stop(t + dur);
+    o.connect(og); og.connect(MASTER); o.start(t); o.stop(t + dur);
   } else if (kind === 'win' || kind === 'lose' || kind === 'draw') {
     // match-end sting: a low hit, then a rising major or falling minor chord
     const notes = kind === 'win' ? [261.6, 329.6, 392, 523.3, 659.3] : kind === 'lose' ? [392, 311.1, 261.6, 196] : [293.7, 370, 440];
     const hit = AC.createOscillator(); hit.frequency.setValueAtTime(110, t); hit.frequency.exponentialRampToValueAtTime(35, t + .9);
     const hg = AC.createGain(); hg.gain.setValueAtTime(vol * .7, t); hg.gain.exponentialRampToValueAtTime(.001, t + .9);
-    hit.connect(hg); hg.connect(AC.destination); hit.start(t); hit.stop(t + .9);
+    hit.connect(hg); hg.connect(MASTER); hit.start(t); hit.stop(t + .9);
     notes.forEach((fq, i) => {
       const st = t + .12 + i * (kind === 'win' ? .11 : .2);
       for (const det of [0, 7]) {
         const o = AC.createOscillator(); o.type = det ? 'sawtooth' : 'triangle'; o.frequency.value = fq; o.detune.value = det;
         const g = AC.createGain(); g.gain.setValueAtTime(.0001, st); g.gain.exponentialRampToValueAtTime(vol * (det ? .035 : .12), st + .04); g.gain.exponentialRampToValueAtTime(.0001, st + 2.2);
-        o.connect(g); g.connect(AC.destination); o.start(st); o.stop(st + 2.3);
+        o.connect(g); g.connect(MASTER); o.start(st); o.stop(st + 2.3);
       }
     });
   } else {
@@ -2084,11 +2087,19 @@ function settingsHtml(inMatch) {
       ${segHtml('leanMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
       <div class="row"><label for="sens">마우스 감도</label><input id="sens" type="range" min="0.2" max="3" step="0.05" value="${settings.sens}"><output id="sensV">${settings.sens.toFixed(2)}</output></div>
       <div class="row"><label for="adsSens">조준 감도</label><input id="adsSens" type="range" min="0.2" max="2" step="0.05" value="${settings.adsSens}"><output id="adsSensV">${settings.adsSens.toFixed(2)}</output></div>
+      <div class="row"><label for="volume">음량</label><input id="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"><output id="volumeV">${Math.round(settings.volume * 100)}%</output></div>
       <span class="lab">그래픽</span>
       ${segHtml('quality', [['low', '낮음'], ['medium', '보통'], ['high', '높음']])}
     </div>`;
 }
+let volumeBeep = 0;
 function bindSliders() {
+  const vol = $('volume');
+  if (vol) vol.addEventListener('input', () => {
+    settings.volume = +vol.value; $('volumeV').textContent = `${Math.round(settings.volume * 100)}%`; saveSettings();
+    audioInit(); applyVolume();
+    const now = performance.now(); if (now - volumeBeep > 120) { volumeBeep = now; sfx('hit', .8); }   // preview the level
+  });
   for (const k of ['sens', 'adsSens']) {
     const el = $(k); if (!el) continue;
     el.addEventListener('input', () => { settings[k] = +el.value; $(k + 'V').textContent = settings[k].toFixed(2); saveSettings(); });
