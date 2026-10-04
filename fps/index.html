@@ -247,7 +247,7 @@ const MX = DEPOT_MAP ? 64 : 48, MZ = DEPOT_MAP ? 44 : 32;   // half extents (met
 const FLOOR2 = DEPOT_MAP ? 4 : 3.2;                           // second-floor height
 // per-map spots: spawn strip (x from the center line, z half width), spawn floor paint, menu camera
 const MAP_META = DEPOT_MAP
-  ? { spawnX: [52, 61], spawnZ: 13, spawnPaint: [57, 14, 32], menuCam: [-30, 2.2, 22, -2.2], shadow: [72, 50] }
+  ? { spawnX: [52, 61], spawnZ: 13, spawnPaint: [57, 14, 32], menuCam: [-56, 2.2, 37, -1.45], shadow: [72, 50] }
   : { spawnX: [41, 46], spawnZ: 8, spawnPaint: [43.5, 6, 18], menuCam: [28, 2.1, 18.8, Math.PI / 2], shadow: [58, 46] };
 const BOXES = [];
 function addBox(cx, cz, sx, sz, h, mat, y0 = 0, vis = true) {
@@ -310,8 +310,8 @@ const DEPOT = {
     { name: 'Red Short Route', ko: '레드 쪽 실내 진입로 (짧은 길)', x: [16, 48], z: [-36, -26], color: '#a88580' },
     { name: 'Blue Long Route', ko: '블루 쪽 야외 교전로 (긴 길)', x: [-50, -14], z: [13, 44], color: '#7f8fa8' },
     { name: 'Red Long Route', ko: '레드 쪽 야외 교전로 (긴 길)', x: [14, 50], z: [13, 44], color: '#a88580' },
-    { name: 'Blue Mid Yard', ko: '블루 쪽 중앙 마당', x: [-50, -12], z: [-26, 13], color: '#7f8fa8' },
-    { name: 'Red Mid Yard', ko: '레드 쪽 중앙 마당', x: [12, 50], z: [-26, 13], color: '#a88580' },
+    { name: 'Blue Mid', ko: '블루 쪽 중앙 통로', x: [-50, -12], z: [-26, 13], color: '#7f8fa8' },
+    { name: 'Red Mid', ko: '레드 쪽 중앙 통로', x: [12, 50], z: [-26, 13], color: '#a88580' },
     { name: 'Blue Spawn', ko: '블루 팀 시작 지점 · 정비 구역', x: [-64, -48], z: [-44, 44], color: '#5b95f0' },
     { name: 'Red Spawn', ko: '레드 팀 시작 지점 · 하역 구역', x: [48, 64], z: [-44, 44], color: '#ef5a4f' },
   ],
@@ -406,20 +406,21 @@ const DEPOT = {
       { axis: 'x', at: -16, from: -44, to: -18, h: 9, mat: 'warehouse', open: [[-35, -32, 0, 3]] },
       // central hall west wall: 1F door, 2F windows looking over the mid yard
       { axis: 'x', at: -12, from: -12, to: 10, h: 8, mat: 'hall', open: [[-3, 1, 0, 3], [-8, -5, 5, 6.6], [3, 7, 5, 6.6]] },
-      // divider between the mid yard and the long route (gap x -22..-14 next to the hall)
-      { axis: 'z', at: 13, from: -50, to: -22, h: 3.5, mat: 'concrete' },
+      // B site is walled in: west wall with three gaps (B link corridor, long alley, flank), north wall beside the hall door
+      { axis: 'x', at: -14, from: 16, to: 44, h: 4, mat: 'concrete', open: [[22, 26, 0, 3.2], [34, 38, 0, 3.2], [41.6, 44, 0, 3.2]] },
+      { axis: 'z', at: 16, from: -14, to: -3, h: 4, mat: 'concrete' },
     ],
     boxes: [
       { x: [-64.5, -64], z: [-44.5, 44.5], y: [0, 8], mat: 'concreteDark' },                // outer west wall
-      // Blue spawn: supply racks, crates, sight blockers in front of the exits
+      // Blue spawn: supply racks and crates; solid blocks fill the open ground around it
       { x: [-63.5, -62.5], z: [-10, 10], y: [0, 3], mat: 'metal' },
       { x: [-56, -54.5], z: [-14, -12.5], y: [0, 1.2], mat: 'crate' },
       { x: [-56, -54.5], z: [12.5, 14], y: [0, 1.2], mat: 'crate' },
-      { x: [-47, -46.4], z: [-15, -7], y: [0, 3], mat: 'blueWall' },
-      { x: [-47, -46.4], z: [7, 15], y: [0, 3], mat: 'blueWall' },
-      { x: [-60, -58], z: [-36, -34], y: [0, 1.4], mat: 'crate' },
+      { x: [-64, -50], z: [-44, -31], y: [0, 6], mat: 'block' },
+      { x: [-64, -58], z: [-31, -22], y: [0, 6], mat: 'warehouse' },
       { x: [-56, -53], z: [-24, -23.4], y: [0, 1.1], mat: 'barrier' },
-      { x: [-60, -58], z: [24, 26], y: [0, 1.5], mat: 'crate' },
+      { x: [-64, -58], z: [22, 32], y: [0, 6], mat: 'warehouse' },
+      { x: [-52, -50.6], z: [27, 28.4], y: [0, 1.4], mat: 'crate' },
       // short route: the block north of the corridor, its roof, the sealed pocket, low crates
       { x: [-48, -16], z: [-44, -36], y: [0, 4.8], mat: 'block' },
       { x: [-48, -16], z: [-36, -26], y: [4.5, 4.8], mat: 'roof', kind: 'roof' },
@@ -431,34 +432,36 @@ const DEPOT = {
       // A warehouse pillars
       { x: [-8.4, -7.6], z: [-37.4, -36.6], y: [0, 9], mat: 'concrete' },
       { x: [-8.4, -7.6], z: [-25.4, -24.6], y: [0, 9], mat: 'concrete' },
-      // mid yard: container, truck, crates, barriers, low wall
-      { x: [-44, -38], z: [-22, -19.5], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
-      { x: [-40, -34], z: [-8, -5.5], y: [0, 3], mat: 'contGray' },
-      { x: [-34, -32], z: [-8, -5.5], y: [0, 2.4], mat: 'blueWall' },
-      { x: [-29, -27], z: [-19, -17], y: [0, 2], mat: 'crate' },
-      { x: [-27, -26], z: [-18.5, -17.5], y: [0, 1], mat: 'crate' },
-      { x: [-24, -21], z: [2, 2.6], y: [0, 1.1], mat: 'barrier' },
-      { x: [-30, -29.4], z: [-4, 4], y: [0, 1.2], mat: 'concrete' },
-      { x: [-18, -16.5], z: [5, 6.5], y: [0, 1.2], mat: 'crate' },
-      { x: [-44, -42.8], z: [6, 7.2], y: [0, .25], mat: 'pallet' },
-      { x: [-43.9, -42.9], z: [6.1, 7.1], y: [.25, 1.25], mat: 'crate' },
+      // mid: solid buildings leave three corridors -- north (spawn -> A link / catwalk), center (-> hall 1F door),
+      // south (spawn -> B link / balcony) -- joined by a short north-south link at x -34..-30
+      { x: [-46, -22], z: [-25.75, -15], y: [0, 6], mat: 'warehouse' },
+      { x: [-49.75, -34], z: [-9, 7], y: [0, 6], mat: 'block' },
+      { x: [-30, -12.25], z: [-9, -3], y: [0, 6], mat: 'hall' },
+      { x: [-30, -12.25], z: [1, 7], y: [0, 6], mat: 'hall' },
+      { x: [-36, -34.6], z: [-15, -13.6], y: [0, 2], mat: 'crate' },
+      { x: [-35.8, -34.8], z: [-14.8, -13.8], y: [2, 2.9], mat: 'crate' },
+      { x: [-27, -24], z: [-10.2, -9.6], y: [0, 1.1], mat: 'barrier' },
+      { x: [-22, -20.8], z: [-3, -1.8], y: [0, 1.2], mat: 'crate' },
+      { x: [-42, -40.6], z: [7, 8.4], y: [0, 1.2], mat: 'crate' },
+      { x: [-28, -25], z: [12.15, 12.75], y: [0, 1.1], mat: 'barrier' },
+      { x: [-21, -19.6], z: [-25.5, -24.1], y: [0, 1.4], mat: 'crate' },
+      { x: [-21, -19.6], z: [-25.5, -24.1], y: [1.4, 2.8], mat: 'crate' },
       // central hall: inner stair rail, 1F crates, balcony and catwalk supports
       { x: [-11.75, -3.5], z: [-9.75, -9.6], y: [4, 5], mat: 'rail' },
       { x: [-8, -6.5], z: [3, 4.5], y: [0, 1.2], mat: 'crate' },
       { x: [-6.15, -5.85], z: [12.5, 12.8], y: [0, 3.7], mat: 'metal' },
       { x: [-6.15, -5.85], z: [-14.8, -14.5], y: [0, 3.7], mat: 'metal' },
-      // long route: containers (one stacked), barriers, pallets; pipe rack collider along the south wall
-      { x: [-46, -40], z: [18, 20.5], y: [0, 2.6], mat: 'contRust', kind: 'container' },
-      { x: [-36, -33.5], z: [24, 30], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
-      { x: [-28, -22], z: [17, 19.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
-      { x: [-28, -22], z: [17, 19.5], y: [2.6, 5.2], mat: 'contOchre', kind: 'container' },
-      { x: [-44, -38], z: [36, 38.5], y: [0, 2.6], mat: 'contOchre', kind: 'container' },
-      { x: [-21, -18.5], z: [30, 36], y: [0, 2.6], mat: 'contRust', kind: 'container' },
-      { x: [-30, -27], z: [34, 34.6], y: [0, 1.1], mat: 'barrier' },
-      { x: [-41, -38], z: [28, 28.6], y: [0, 1.1], mat: 'barrier' },
-      { x: [-17, -14], z: [22, 22.6], y: [0, 1.1], mat: 'barrier' },
-      { x: [-25, -23.8], z: [38, 39.2], y: [0, .25], mat: 'pallet' },
-      { x: [-24.9, -23.9], z: [38.1, 39.1], y: [.25, 1.25], mat: 'crate' },
+      // long route: a big storage building, a north-south B link corridor at x -23..-14, and a 10 m alley along
+      // the south wall with containers zig-zagging from both sides; pipe rack collider along the south wall
+      { x: [-50, -23], z: [13, 32], y: [0, 6], mat: 'block' },
+      { x: [-20, -17.5], z: [19, 25], y: [0, 2.6], mat: 'contRust', kind: 'container' },
+      { x: [-44, -38], z: [32, 34.5], y: [0, 2.6], mat: 'contOchre', kind: 'container' },
+      { x: [-36, -30], z: [39.8, 42.3], y: [0, 2.6], mat: 'contGreen', kind: 'container' },
+      { x: [-28, -22], z: [32, 34.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
+      { x: [-28, -22], z: [32, 34.5], y: [2.6, 5.2], mat: 'contOchre', kind: 'container' },
+      { x: [-41, -38], z: [37.5, 38.1], y: [0, 1.1], mat: 'barrier' },
+      { x: [-20, -18.8], z: [38, 39.2], y: [0, .25], mat: 'pallet' },
+      { x: [-19.9, -18.9], z: [38.1, 39.1], y: [.25, 1.25], mat: 'crate' },
       { x: [-50, -16], z: [42.3, 43.7], y: [0, 2], mat: 'pipe', hidden: true },
       // B site: side container, flank wall of containers (gaps at x -8..-6 and -1.2..1.2), barrier
       { x: [-12, -6], z: [26, 28.5], y: [0, 2.6], mat: 'contBlue', kind: 'container' },
@@ -482,10 +485,9 @@ const DEPOT = {
     ],
     signs: [
       { text: 'BLUE SPAWN', sub: '← A        B →', pos: [-50.3, 3, 0], ry: -Math.PI / 2, w: 6, h: 1.6, bg: '#3a5d90', fg: '#ffffff' },
-      { text: 'BLUE SPAWN', sub: 'MAINTENANCE', pos: [-49.7, 3, 0], ry: Math.PI / 2, w: 6, h: 1.5, bg: '#3a5d90', fg: '#ffffff' },
       { text: 'SHORT ROUTE', sub: '→ A', pos: [-48.3, 3.7, -28.5], ry: -Math.PI / 2, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
       { text: 'A', sub: '→', pos: [-16.3, 3.9, -33.5], ry: -Math.PI / 2, w: 1.6, h: 1.2, bg: '#d9a92b', fg: '#1b1b1b' },
-      { text: 'LONG ROUTE', sub: '→ B', pos: [-36, 2.6, 13.3], ry: 0, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
+      { text: 'LONG ROUTE', sub: '→ B', pos: [-36, 2.8, 32.05], ry: 0, w: 4.4, h: 1.2, bg: '#e6e0d0', fg: '#262626' },
       { text: 'B SITE', sub: 'UTILITY YARD', pos: [-3.6, 4, 38.9], ry: Math.PI, w: 4.2, h: 1.5, bg: '#d9772b', fg: '#1b1b1b' },
       { text: 'CENTRAL HALL', sub: '1F', pos: [-12.3, 3.6, -1], ry: -Math.PI / 2, w: 4.6, h: 1, bg: '#e6e0d0', fg: '#262626' },
     ],
@@ -529,7 +531,6 @@ function depotLayout() {
   }
   return out;
 }
-
 
 // Converts the logistics depot's MAP_CONFIG into this game's boxes, floors, lamps and decorations.
 function buildDepotMap() {
@@ -827,11 +828,16 @@ const DIFF = {
   hard:   { n: '어려움', react: .25, spread: .026, burst: [4, 8], hp: 100 },
 };
 const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈', '코브라', '하이에나', '독사', '까마귀'] };
-const GOAL = 40, MATCH_TIME = 300, RESPAWN = 3;
+const RESPAWN = 3;
+const GOALS = [20, 30, 40, 60, 80, 100], TIMES = [3, 5, 10, 15];   // kill targets and time limits (minutes) on the menu
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', sens: 1, adsSens: 1, volume: .8, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', goal: 40, minutes: 5, sens: 1, adsSens: 1, volume: .8, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 settings.map = MAP_ID;
+if (!GOALS.includes(+settings.goal)) settings.goal = 40;
+if (!TIMES.includes(+settings.minutes)) settings.minutes = 5;
+// fixed for the match when it starts, so changing the menu mid-match never ends it early
+let GOAL = +settings.goal, MATCH_TIME = settings.minutes * 60;
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
 const G = { state: 'menu', time: 0, score: { blue: 0, red: 0 }, actors: [], nades: [], countdown: 0 };
 let loadoutPrimary = 'rifle', loadoutSecondary = 'pistol', loadoutEquip = 'nades';   // fixed at spawn; changes apply at the next respawn
@@ -2072,12 +2078,14 @@ function requestLock() {
 
 // =============== menus and match flow ===============
 function segHtml(key, opts) {
-  return `<div class="seg" style="--n:${opts.length}" role="group">${opts.map(([v, label]) => `<button type="button" data-set="${key}" data-val="${v}" aria-pressed="${settings[key] === v}">${label}</button>`).join('')}</div>`;
+  return `<div class="seg" style="--n:${opts.length}" role="group">${opts.map(([v, label]) => `<button type="button" data-set="${key}" data-val="${v}" aria-pressed="${String(settings[key]) === v}">${label}</button>`).join('')}</div>`;
 }
 function settingsHtml(inMatch) {
   return `
     <div class="set">
       ${inMatch ? '' : `<span class="lab">맵</span>${segHtml('map', [['supply', '보급기지'], ['depot', '물류기지']])}`}
+      ${inMatch ? '' : `<span class="lab">목표 킬</span>${segHtml('goal', GOALS.map(g => [String(g), String(g)]))}`}
+      ${inMatch ? '' : `<span class="lab">제한 시간</span>${segHtml('minutes', TIMES.map(m => [String(m), m + '분']))}`}
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
       <span class="lab">조준 방식</span>
       ${segHtml('aimMode', [['hold', '누르고 있기'], ['toggle', '눌러서 켜고 끄기']])}
@@ -2141,6 +2149,7 @@ function setupMatch() {
   $('centerMsg').hidden = true;
 }
 function startMatch() {
+  GOAL = +settings.goal; MATCH_TIME = settings.minutes * 60;
   audioInit(); loadoutOpen = false; clearEnding();
   setupMatch();
   G.state = 'count'; G.countdown = 3;
@@ -2267,7 +2276,7 @@ function showMenu() {
   $('hud').hidden = true; $('touch').hidden = true;
   $('card').innerHTML = `
     <h1>보급기지 작전<small>TEAM DEATHMATCH 5 VS 5</small></h1>
-    <p>${DEPOT_MAP ? '실내 창고 A, 야외 설비장 B, 2층 중앙 건물이 있는 물류기지' : '창고와 골목이 얽힌 보급기지'}에서 아군 봇 4명과 함께 레드 팀 봇 5명을 상대해요. 먼저 ${GOAL}킬을 내거나 5분이 끝났을 때 앞선 팀이 이겨요.</p>
+    <p>${DEPOT_MAP ? '실내 창고 A, 야외 설비장 B, 2층 중앙 건물이 있는 물류기지' : '창고와 골목이 얽힌 보급기지'}에서 아군 봇 4명과 함께 레드 팀 봇 5명을 상대해요. 먼저 목표 킬을 내거나 제한 시간이 끝났을 때 앞선 팀이 이겨요.</p>
     ${settingsHtml(false)}
     ${controlsHtml()}
     <button class="btn" type="button" data-act="start">전투 시작</button>`;
@@ -2280,6 +2289,7 @@ $('overlay').addEventListener('click', e => {
     settings[s.dataset.set] = s.dataset.val; saveSettings();
     s.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === s)));
     if (s.dataset.set === 'map' && s.dataset.val !== MAP_ID) { s.closest('.card').style.opacity = .5; location.hash = `map=${s.dataset.val}`; location.reload(); return; }
+    if (s.dataset.set === 'goal' || s.dataset.set === 'minutes') { settings[s.dataset.set] = +s.dataset.val; saveSettings(); }
     if (s.dataset.set === 'quality') applyQuality();
     if (s.dataset.set === 'aimMode') setAim(false);
     if (s.dataset.set === 'crouchMode') { crouchToggle = false; touchCrouch = false; }
