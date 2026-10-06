@@ -128,6 +128,49 @@ details { text-align: left; border-top: 1px solid var(--line); padding-top: 8px;
 summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted); }
 .btn { height: 50px; border: 0; border-radius: 10px; background: var(--amber); color: #111; font: 700 20px var(--font-body); box-shadow: 0 4px 0 #8f5e05; }
 .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #8f5e05; }
+.btn.ghost { background: #2b3029; color: var(--ink); box-shadow: 0 4px 0 #0c0e0c; font-size: 15px; }
+.result { font: 700 42px/1 var(--font-num); }
+.result .b { color: var(--blue); } .result .r { color: var(--red); }
+.err { color: #ffb4a8; }
+/* match end: slow motion banner and color grade */
+.endban { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: grid; place-items: center; align-content: center; gap: 6px; }
+.endban::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 150px; margin-top: -84px; background: linear-gradient(90deg, transparent, rgba(8,10,8,.78) 18%, rgba(8,10,8,.78) 82%, transparent); transform: scaleX(0); animation: banBar .5s .05s cubic-bezier(.2,.8,.2,1) forwards; }
+.endban b { position: relative; font: 700 clamp(64px, 15vw, 132px)/1 var(--font-body); letter-spacing: .08em; opacity: 0; animation: banIn .7s .15s cubic-bezier(.15,1.4,.35,1) forwards; }
+.endban span { position: relative; font: 700 clamp(14px, 2.6vw, 22px) var(--font-num); letter-spacing: .6em; padding-left: .6em; color: var(--ink); opacity: 0; animation: banSub .6s .55s ease-out forwards; }
+.endban.win b { color: var(--amber); text-shadow: 0 0 28px rgba(242,177,58,.75), 0 4px 0 #6d4704; }
+.endban.lose b { color: var(--red); text-shadow: 0 0 28px rgba(239,90,79,.6), 0 4px 0 #5a1611; }
+.endban.draw b { color: var(--ink); text-shadow: 0 0 24px rgba(255,255,255,.4), 0 4px 0 #333; }
+@keyframes banIn { 0% { opacity: 0; transform: scale(2.6); filter: blur(10px); } 60% { opacity: 1; filter: blur(0); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes banSub { from { opacity: 0; letter-spacing: 1.4em; } to { opacity: .9; letter-spacing: .6em; } }
+@keyframes banBar { to { transform: scaleX(1); } }
+#view { transition: filter 1.4s ease-out; }
+body.end-win #view { filter: saturate(1.3) sepia(.22) brightness(1.06) contrast(1.05); }
+body.end-lose #view { filter: grayscale(.85) brightness(.82) contrast(1.1); }
+body.end-draw #view { filter: saturate(.6) brightness(.95); }
+body.ending .hud > :not(.score) { opacity: 0 !important; }
+.card > * { flex-shrink: 0; }
+.card.wide { max-width: 760px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.stats div { padding: 8px 4px; border-radius: 8px; background: #1d211b; border: 1px solid var(--line); }
+.stats b { display: block; font: 700 22px/1.1 var(--font-num); }
+.stats small { font-size: 11.5px; color: var(--muted); }
+.card .board { position: static; transform: none; width: 100%; padding: 0; background: none; text-align: left; }
+.mvp { color: var(--amber); font-weight: 700; }
+/* loadout screen */
+.lo-sec { text-align: left; display: flex; flex-direction: column; gap: 6px; }
+.lo-sec h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .08em; }
+.lo-grid { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 6px; }
+.lo { position: relative; padding: 8px 9px 9px; border-radius: 10px; border: 1px solid var(--line); background: #1b1f19; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+.lo[aria-pressed="true"] { border-color: var(--amber); background: #2c2817; box-shadow: inset 0 0 0 1px var(--amber); }
+.lo .k { position: absolute; right: 8px; top: 6px; font: 700 11px var(--font-num); color: var(--muted); }
+.lo b { font-size: 15px; }
+.lo .d { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.lo svg { width: 100%; height: 34px; }
+.lo .bars { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-size: 10.5px; color: var(--muted); }
+.lo .bars i { display: block; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+.lo .bars i::after { content: ""; display: block; height: 100%; width: var(--v); background: var(--amber); }
+.lo-note { font-size: 12px; color: var(--muted); }
+@media (max-width: 620px) { .lo-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-height: 520px) { .card details { display: none; } .lo .d, .lo svg { display: none; } }
 @media (max-height: 720px) {
   .overlay { padding: 8px; }
