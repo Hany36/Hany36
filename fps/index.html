@@ -2775,6 +2775,7 @@ $('overlay').addEventListener('click', e => {
   if (b.dataset.act === 'host') netHost();
   if (b.dataset.act === 'join') netJoin(($('joinCode').value || '').trim());
   if (b.dataset.act === 'netstart') netStartMatch();
+  if (b.dataset.act === 'invite') netCopyInvite();
 });
 
 // =============== online: two players over a peer-to-peer connection ===============
@@ -2874,6 +2875,7 @@ function showLobby() {
   $('card').innerHTML = `
     <h2>대기실</h2>
     <div class="netcode">${NET.code || '····'}<small>방 코드</small></div>
+    ${host && NET.code ? `<button class="btn ghost" type="button" data-act="invite">초대 링크 복사 (누르면 바로 참가)</button>` : ''}
     <p class="keep">${host ? (joined ? `<b>${esc(NET.peerName)}</b> 님이 들어왔어요.` : '친구에게 이 코드를 알려 주세요. 기다리는 중…') : `방장 <b>${esc(NET.peerName)}</b> 님이 시작하기를 기다리는 중…`}</p>
     <p class="keep">맵 ${mapName} · 목표 ${goal}킬 · ${mins}분 · 5 대 5 (빈자리는 봇)</p>
     <span class="lab" style="font-size:12px;font-weight:700;color:var(--muted)">모드${host ? '' : ' (방장이 정해요)'}</span>
@@ -3126,6 +3128,16 @@ function netDamage(victim, amount, attacker, weaponName, head) {
     return false;
   }
   return damage(victim, amount, attacker, weaponName, head, attacker);
+}
+// an invite link: opening it switches to the host's map (and depot yard) and joins the room straight away
+function netInviteLink() {
+  const yard = MAP_ID === 'depot' ? '&yard=' + encodeURIComponent(yardEncode(YARD_GRID)) : '';
+  return `${location.origin}${location.pathname}#map=${MAP_ID}${yard}&join=${NET.code}`;
+}
+function netCopyInvite() {
+  const link = netInviteLink(), done = () => netStatus('초대 링크를 복사했어요. 메신저로 친구에게 보내 주세요.');
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') { netStatus('이 화면에서는 초대 링크를 만들 수 없어요. 게임 주소를 열어서 다시 해 주세요.', true); return; }
+  (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).then(done, () => { prompt('이 링크를 복사해서 친구에게 보내 주세요', link); });
 }
 // opened from a link with #join=CODE (after switching to the host's map): join straight away
 function netAutoJoin() {
