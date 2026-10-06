@@ -1931,7 +1931,7 @@ const SLIDE_TIME = .8, slideDir = [0, 0];
 function tryStartSlide() {
   const v = Math.hypot(me.vx, me.vz);
   if (!me || me.dead || !me.ground || slideT > 0 || !me.sprint || v < 5.5) return false;
-  slideT = SLIDE_TIME; slideDir[0] = me.vx / v; slideDir[1] = me.vz / v; me.crouch = true; me.sprint = false; slideHoldC = true;
+  slideT = SLIDE_TIME; slideDir[0] = me.vx / v; slideDir[1] = me.vz / v; me.crouch = true; me.sprint = false; slideHoldC = true; me.slid = true;
   sfx('slide', .8);
   return true;
 }
@@ -1946,10 +1946,11 @@ function updatePlayer(dt) {
   // the C press that started a slide never turns into crouching: after the slide you stand up again
   const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : ((keys.KeyC && !slideHoldC) || touchCrouch);
   if (slideT > 0) me.crouch = true;
+  else if (me.slid && !wantCrouch && !collidesAt(me.x, me.y, me.z, 1.75)) { me.crouch = false; me.slid = false; }
   else if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
-  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && slideT <= 0 && Math.abs(me.lean || 0) < .3;
-  if (me.sprint && aiming) setAim(false);
+  // aiming wins over sprinting: right-click while sprinting drops the sprint and aims
+  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !aiming && slideT <= 0 && Math.abs(me.lean || 0) < .3;
   const slow = keys.ControlLeft || keys.ControlRight;
   const spd = (me.crouch ? 2.4 : aiming ? 3.2 : slow ? 3 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
@@ -1958,7 +1959,8 @@ function updatePlayer(dt) {
   if (slideT > 0) {
     // slide: keep going the way you were running, fast at first, then easing off (a little steering)
     slideT -= dt;
-    const v = 2.2 + 8.6 * Math.pow(Math.max(0, slideT) / SLIDE_TIME, .7);
+    const after = fz > .2 ? ((keys.ShiftLeft || keys.ShiftRight) && !aiming ? 7.4 : 5.4) : 1.5;   // speed you carry on with
+    const v = after + (10.8 - after) * Math.pow(Math.max(0, slideT) / SLIDE_TIME, 1.4);
     slideDir[0] += (tvx * .02) * dt; slideDir[1] += (tvz * .02) * dt;
     const l = Math.hypot(slideDir[0], slideDir[1]) || 1; slideDir[0] /= l; slideDir[1] /= l;
     me.vx = slideDir[0] * v; me.vz = slideDir[1] * v;
@@ -3177,7 +3179,7 @@ function render(dt) {
     updateNadeArc();
     const dead = me.dead;
     const [lx, lz] = dead ? [0, 0] : leanVec(me);
-    camera.position.set(me.x + lx, me.y + (dead ? .4 : eyeH(me)) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
+    camera.position.set(me.x + lx, me.y + (dead ? .4 : (me.eyeS = me.eyeS === undefined ? eyeH(me) : me.eyeS + (eyeH(me) - me.eyeS) * Math.min(1, dt * 9))) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
     vm.slideK = (vm.slideK || 0) + ((slideT > 0 ? 1 : 0) - (vm.slideK || 0)) * Math.min(1, dt * 10);
     camera.rotation.set(me.pitch + recoilP * .3, me.yaw, dead ? .6 : -(me.leanOff || 0) / LEAN_DIST * LEAN_ROLL + vm.slideK * .09);
     // match end: the camera pulls back and rises over the player's spot, looking down
