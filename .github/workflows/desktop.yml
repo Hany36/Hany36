@@ -1,0 +1,38 @@
+# Builds the Windows PC version (desktop/) and puts SupplyOp.exe on the "desktop" release page.
+name: PC 버전 빌드
+on:
+  push:
+    branches: [claude/jolly-pascal-dtmrqz]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 오프라인용 게임 사본 넣기
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force desktop/offline | Out-Null
+          Copy-Item fps/index.html desktop/offline/index.html
+      - name: 빌드
+        working-directory: desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run dist
+      - name: 릴리스에 올리기
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop
+          name: 보급기지 작전 PC 버전
+          body: |
+            SupplyOp.exe를 받아 실행하세요. 설치 없이 바로 열리고, 게임은 항상 최신 버전으로 불러옵니다.
+            처음 실행할 때 Windows가 "PC 보호" 화면을 띄우면 "추가 정보 → 실행"을 누르세요(서명되지 않은 개인 프로그램이라 뜹니다).
+            F11 전체 화면, F5 새로고침.
+          files: desktop/dist/SupplyOp.exe
+          make_latest: true
