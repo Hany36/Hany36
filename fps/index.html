@@ -1970,8 +1970,8 @@ function updatePlayer(dt) {
   else if (me.slid && !wantCrouch && !collidesAt(me.x, me.y, me.z, 1.75)) { me.crouch = false; me.slid = false; }
   else if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
-  // aiming wins over sprinting: right-click while sprinting drops the sprint and aims
-  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !aiming && slideT <= 0 && Math.abs(me.lean || 0) < .3;
+  // aiming and shooting win over sprinting: right- or left-click while sprinting drops the sprint
+  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !aiming && !triggerHeld && slideT <= 0 && Math.abs(me.lean || 0) < .3;
   const spd = (me.crouch ? 2.4 : aiming ? 3.2 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const tvx = (-sy * fz + cy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1), tvz = (-cy * fz - sy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1);
@@ -1979,7 +1979,7 @@ function updatePlayer(dt) {
   if (slideT > 0) {
     // slide: keep going the way you were running, fast at first, then easing off (a little steering)
     slideT -= dt;
-    const after = fz > .2 ? ((keys.ShiftLeft || keys.ShiftRight) && !aiming ? 7.4 : 5.4) : 1.5;   // speed you carry on with
+    const after = fz > .2 ? ((keys.ShiftLeft || keys.ShiftRight) && !aiming && !triggerHeld ? 7.4 : 5.4) : 1.5;   // speed you carry on with
     const v = after + (10.8 - after) * Math.pow(Math.max(0, slideT) / SLIDE_TIME, 1.4);
     slideDir[0] += (tvx * .02) * dt; slideDir[1] += (tvz * .02) * dt;
     const l = Math.hypot(slideDir[0], slideDir[1]) || 1; slideDir[0] /= l; slideDir[1] /= l;
