@@ -1043,9 +1043,10 @@ const NAMES = { blue: ['독수리', '호랑이', '늑대', '매'], red: ['전갈
 const RESPAWN = 3;
 const GOALS = [20, 30, 40, 60, 80, 100], TIMES = [3, 5, 10, 15];   // kill targets and time limits (minutes) on the menu
 const touch = matchMedia('(pointer: coarse)').matches;
-let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', goal: 40, minutes: 5, sens: 1, adsSens: 1, scopeSens: 1, volume: .8, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
+let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', goal: 40, minutes: 5, sens: 1, adsSens: 1, scopeSens: 1, volume: .8, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: 'auto' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 settings.map = MAP_ID;
+if (!settings.qv) { settings.quality = 'auto'; settings.qv = 1; }   // older saves defaulted to 'high', which is too heavy for many laptops
 if (!YARD_LAYOUTS[settings.yardMode]) settings.yardMode = 'random';
 if (!GOALS.includes(+settings.goal)) settings.goal = 40;
 if (!TIMES.includes(+settings.minutes)) settings.minutes = 5;
@@ -1206,8 +1207,22 @@ const std = (o) => {
   if (o.emissive !== undefined) m.emissive.convertSRGBToLinear();
   return m;
 };
+const QUALITY = { high: { shadow: 4096, ratio: 1.75, lights: 8 }, medium: { shadow: 2048, ratio: 1.25, lights: 4 }, low: { shadow: 0, ratio: 1, lights: 0 } };
+// 'auto' starts in the middle and steps down while frames are slow (up once if there is plenty of headroom)
+const AUTO_LEVELS = [QUALITY.high, QUALITY.medium, { shadow: 1024, ratio: 1, lights: 2 }, QUALITY.low, { shadow: 0, ratio: .75, lights: 0 }];
+const autoQ = { level: 1, t: 0, frames: 0, slow: 0, wentDown: false };
 function qualityParams() {
-  return { high: { shadow: 4096, ratio: 1.75, lights: 8 }, medium: { shadow: 2048, ratio: 1.25, lights: 4 }, low: { shadow: 0, ratio: 1, lights: 0 } }[settings.quality] || { shadow: 1024, ratio: 1.25, lights: 3 };
+  return settings.quality === 'auto' ? AUTO_LEVELS[autoQ.level] : QUALITY[settings.quality] || QUALITY.medium;
+}
+// measures real frame times while playing and moves the auto level when they stay too slow (or very fast)
+function autoQuality(rawDt) {
+  if (settings.quality !== 'auto' || document.hidden || (G.state !== 'play' && G.state !== 'count')) { autoQ.t = 0; autoQ.frames = 0; return; }
+  autoQ.t += rawDt; autoQ.frames++;
+  if (autoQ.t < 2.5) return;
+  const fps = autoQ.frames / autoQ.t; autoQ.t = 0; autoQ.frames = 0;
+  if (fps < 48 && autoQ.level < AUTO_LEVELS.length - 1) { autoQ.level++; autoQ.wentDown = true; applyQuality(); }
+  else if (fps > 58 && !autoQ.wentDown && autoQ.level > 0 && ++autoQ.slow >= 3) { autoQ.level--; autoQ.slow = 0; applyQuality(); }
+  else if (fps <= 58) autoQ.slow = 0;
 }
 function applyQuality() {
   const q = qualityParams();
@@ -2560,7 +2575,7 @@ function settingsHtml(inMatch) {
       <div class="row"><label for="scopeSens">저격 감도</label><input id="scopeSens" type="range" min="0.2" max="2" step="0.05" value="${settings.scopeSens}"><output id="scopeSensV">${settings.scopeSens.toFixed(2)}</output></div>
       <div class="row"><label for="volume">음량</label><input id="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"><output id="volumeV">${Math.round(settings.volume * 100)}%</output></div>
       <span class="lab">그래픽</span>
-      ${segHtml('quality', [['low', '낮음'], ['medium', '보통'], ['high', '높음']])}
+      ${segHtml('quality', [['auto', '자동'], ['low', '낮음'], ['medium', '보통'], ['high', '높음']])}
     </div>`;
 }
 let volumeBeep = 0;
@@ -2759,7 +2774,7 @@ $('overlay').addEventListener('click', e => {
     if (s.dataset.set === 'map' && s.dataset.val !== MAP_ID) { s.closest('.card').style.opacity = .5; location.hash = `map=${s.dataset.val}`; location.reload(); return; }
     if (s.dataset.set === 'yardMode') { s.closest('.card').style.opacity = .5; location.hash = 'map=depot'; location.reload(); return; }
     if (s.dataset.set === 'goal' || s.dataset.set === 'minutes') { settings[s.dataset.set] = +s.dataset.val; saveSettings(); }
-    if (s.dataset.set === 'quality') applyQuality();
+    if (s.dataset.set === 'quality') { autoQ.level = 1; autoQ.wentDown = false; autoQ.slow = 0; applyQuality(); }
     if (s.dataset.set === 'aimMode') setAim(false);
     if (s.dataset.set === 'crouchMode') { crouchToggle = false; touchCrouch = false; }
     if (s.dataset.set === 'leanMode') { leanToggle = 0; touchLean = 0; }
@@ -3156,20 +3171,22 @@ function netAutoJoin() {
 // =============== main loop ===============
 let last = 0;
 function frame(ts) {
-  const dt = Math.min(.05, (ts - (last || ts)) / 1000);
+  const rawDt = (ts - (last || ts)) / 1000;
   last = ts;
+  autoQuality(rawDt);
+  // slow frames are split into short steps so the game keeps its real speed (beyond 0.1s it slows down instead of jumping)
+  const full = Math.min(.1, rawDt), n = Math.max(1, Math.ceil(full / .034)), dt = full / n;
   if (G.state === 'count') {
-    G.countdown -= dt;
+    G.countdown -= full;
     showCenter(Math.max(1, Math.ceil(G.countdown)), '전투 준비');
     if (G.countdown <= 0) { G.state = 'play'; $('centerMsg').hidden = true; }
   }
-  if (G.state === 'play' || (NET.role !== 'off' && G.state === 'pause' && G.resume === 'play')) step(dt);   // online games keep running while paused
+  if (G.state === 'play' || (NET.role !== 'off' && G.state === 'pause' && G.resume === 'play')) for (let i = 0; i < n && G.state !== 'ending' && G.state !== 'over'; i++) step(dt);   // online games keep running while paused
   else if (G.state === 'ending') {
-    G.endT += dt;
-    step(dt * (G.endT < .25 ? 1 - (1 - END_SLOW) * G.endT / .25 : END_SLOW));
+    for (let i = 0; i < n; i++) { G.endT += dt; step(dt * (G.endT < .25 ? 1 - (1 - END_SLOW) * G.endT / .25 : END_SLOW)); }
     if (G.endT >= END_TIME) showResults();
   } else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe && !a.remote) updateBot(a, 0); }
-  render(dt);
+  render(full);
   requestAnimationFrame(frame);
 }
 function step(dt) {
