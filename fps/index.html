@@ -69,6 +69,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .chat .log div { align-self: flex-start; max-width: 100%; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.45); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; transition: opacity .6s; }
 .chat .log b { margin-right: 6px; } .chat .log .mine b { color: var(--amber); } .chat .log .sys { color: var(--muted); }
 .chat input { pointer-events: auto; font: inherit; font-size: 14px; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--amber); background: rgba(10,12,10,.85); color: #fff; outline: none; }
+.keyguide { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 30; width: min(620px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow-y: auto; padding: 16px 18px; border-radius: 12px; background: rgba(12,14,12,.94); border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.keyguide h3 { margin: 0 0 10px; font-size: 17px; display: flex; justify-content: space-between; align-items: center; }
+.keyguide h3 small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.keyguide .kg { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 18px; }
+.keyguide .kg div { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
+.keyguide kbd { display: inline-block; min-width: 30px; padding: 3px 7px; border-radius: 6px; background: #2b302a; border: 1px solid #4a5048; border-bottom-width: 3px; font: 700 12px var(--font-num); text-align: center; color: #fff; white-space: nowrap; }
+.keyguide .kk { display: flex; gap: 4px; min-width: 112px; justify-content: flex-end; }
+.killcam { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
+.killcam .kcbar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; }
+.killcam .kcbar.top { top: 0; } .killcam .kcbar.bot { bottom: 0; }
+.killcam .kctag { position: absolute; left: 4vw; top: calc(9vh + 18px); font: 800 clamp(22px, 4vw, 40px)/1 var(--font-num); letter-spacing: .18em; color: var(--amber); text-shadow: 0 2px 10px rgba(0,0,0,.7); animation: banSub .5s ease-out both; }
+.killcam .kcwho { position: absolute; left: 4vw; top: calc(9vh + 18px + clamp(30px, 5vw, 50px)); font-size: clamp(15px, 2vw, 20px); text-shadow: 0 2px 6px #000; }
+.killcam .kcwho .b { color: var(--blue); font-weight: 700; } .killcam .kcwho .r { color: var(--red); font-weight: 700; } .killcam .kcwho .hs { color: var(--amber); font-weight: 700; }
+.killcam .kcskip { position: absolute; right: 4vw; bottom: calc(9vh + 14px); font-size: 12px; color: var(--muted); }
 .lchat { margin: 8px 0; text-align: left; }
 .lchat .log { max-height: 130px; overflow-y: auto; padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,.3); font-size: 13px; line-height: 1.4; min-height: 40px; }
 .lchat .log b { margin-right: 6px; } .lchat .log .mine b { color: var(--amber); } .lchat .log .sys { color: var(--muted); }
@@ -206,6 +220,8 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 <div class="vignette"></div>
 
 <div class="chat" id="chat" hidden><div class="log" id="chatLog"></div><input id="chatIn" maxlength="100" placeholder="메시지 입력 · Enter 보내기 · Esc 닫기" autocomplete="off" hidden></div>
+<div class="keyguide" id="keyGuide" hidden></div>
+<div class="killcam" id="killcam" hidden><div class="kcbar top"></div><div class="kcbar bot"></div><div class="kctag" id="kcTag">FINAL KILL</div><div class="kcwho" id="kcWho"></div><div class="kcskip">Space · 클릭으로 건너뛰기</div></div>
 <div class="hud" id="hud" hidden>
   <div class="scope" id="scope" hidden></div>
   <div class="hurt" id="hurt"></div>
@@ -1649,6 +1665,7 @@ function burst(p, col, n, spd, life) {
   }
 }
 function tracer(a, b, col = 0xffe2a0) {
+  if (G.state !== 'replay') recShot(a, b, col);
   const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
   const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: .7 }));
   fxGroup.add(line); tracers.push({ line, t: 0 });
@@ -2377,6 +2394,7 @@ function botFire(a, t) {
 const $ = id => document.getElementById(id);
 const feed = [];
 function pushFeed(killer, victim, weaponName, head) {
+  recKill(killer, victim, weaponName, head);
   if (NET.role === 'host') netSend({ t: 'feed', k: G.actors.indexOf(killer), v: G.actors.indexOf(victim), w: weaponName, h: !!head });
   const cls = x => (x.team === 'blue' ? 'b' : 'r');
   feed.unshift({ html: killer === victim ? `<span class="${cls(victim)}">${victim.name}</span> <span class="w">자폭</span>`
@@ -2468,13 +2486,14 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
   if (e.repeat) return;
   keys[e.code] = true;
+  if (e.code === 'F1') { e.preventDefault(); toggleKeyGuide(); return; }
+  if (e.code === 'KeyB' && G.state === 'play') { pauseGame(); if (G.state === 'pause') showLoadout(true); return; }   // also while dead: applies at the next respawn
   if (!playing() || me.dead) return;
   const sl = slots();
   if (e.code === 'Digit1') selectWeapon(sl[0]);
   if (e.code === 'Digit2') selectWeapon(sl[1]);
   if (e.code === 'Digit3') selectWeapon(sl[2]);
   if (e.code === 'KeyX') selectWeapon(prevWeapon);
-  if (e.code === 'KeyB') { pauseGame(); if (G.state === 'pause') showLoadout(true); return; }
   if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyC') { if (!tryStartSlide() && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; }
@@ -2599,6 +2618,8 @@ function settingsHtml(inMatch) {
       <div class="row"><label for="volume">음량</label><input id="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"><output id="volumeV">${Math.round(settings.volume * 100)}%</output></div>
       <span class="lab">그래픽</span>
       ${segHtml('quality', [['auto', '자동'], ['low', '낮음'], ['medium', '보통'], ['high', '높음']])}
+      <span class="lab">화면</span>
+      <div class="seg" style="--n:2" role="group"><button type="button" data-act="fullscreen">${document.fullscreenElement ? '전체 화면 끄기' : '전체 화면 켜기'}</button><button type="button" data-act="keyguide">키 가이드 (F1)</button></div>
       <span class="lab">FPS 표시</span>
       ${segHtml('showFps', [['off', '끄기'], ['on', '켜기']])}
     </div>`;
@@ -2640,6 +2661,30 @@ function controlsHtml() {
       <dt>Esc</dt><dd>일시정지</dd>
     </dl></details>`;
 }
+// key guide panel: F1 in a match (the game keeps running), or the button in the menu / settings
+const KEY_GUIDE = [
+  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께)'], [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
+  [['우클릭'], '정조준 · 스코프 (달리기 풀림)'], [['R'], '재장전'], [['1', '2', '3'], '주무기 · 보조무기 · 칼'], [['X'], '이전 무기'],
+  [['휠'], '무기 바꾸기'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 (누르고 조준, 떼면 던짐)'],
+  [['Space'], '점프'], [['C'], '앉기 · 달리면서 누르면 슬라이딩'], [['Tab'], '점수판'], [['Enter'], '채팅'],
+  [['F1'], '키 가이드 열기 · 닫기'], [['F11'], '전체 화면 (설정에서도 가능)'], [['Esc'], '일시정지'],
+];
+function toggleKeyGuide(force) {
+  const el = $('keyGuide'), show = force !== undefined ? force : el.hidden;
+  if (show) el.innerHTML = `<h3>키 가이드 <small>F1 또는 Esc로 닫기</small></h3><div class="kg">${KEY_GUIDE.map(([ks, d]) => `<div><span class="kk">${ks.map(k => `<kbd>${k}</kbd>`).join('')}</span><span>${d}</span></div>`).join('')}</div>`;
+  el.hidden = !show;
+}
+window.addEventListener('keydown', e => {
+  if (e.code === 'F1' && G.state !== 'play' && G.state !== 'count') { e.preventDefault(); toggleKeyGuide(); }
+  else if (e.code === 'Escape' && !$('keyGuide').hidden) toggleKeyGuide(false);
+});
+function toggleFullscreen(btn) {
+  const done = () => setTimeout(() => { if (btn) btn.textContent = document.fullscreenElement ? '전체 화면 끄기' : '전체 화면 켜기'; }, 150);
+  try {
+    if (document.fullscreenElement) document.exitFullscreen().then(done, done);
+    else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(done, done);
+  } catch (e) { /* not allowed here */ }
+}
 function setupMatch() {
   for (const a of G.actors) if (a.mesh) scene.remove(a.mesh);
   for (const p of G.nades) scene.remove(p.mesh);
@@ -2659,6 +2704,7 @@ function startMatch() {
   setupMatch();
   G.state = 'count'; G.countdown = 3;
   $('overlay').hidden = true; $('hud').hidden = false; $('touch').hidden = !touch;
+  if (!touch) chatAdd('', 'F1: 키 가이드 · Enter: 채팅 · B: 무기 고르기', false, true);
   requestLock();
 }
 function pauseGame() {
@@ -2720,7 +2766,116 @@ function showResults() {
     <button class="btn ghost" type="button" data-act="menu">메인 메뉴로</button>`;
   $('overlay').hidden = false;
 }
-function clearEnding() { $('endBan').hidden = true; document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); }
+function clearEnding() { REC.frames = []; REC.shots = []; REC.kills = []; endReplay(); $('endBan').hidden = true; document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); }
+// ---- final-kill highlight: the last few seconds are recorded (positions of everyone, shots, kills);
+// when the match ends the decisive kill is replayed over the killer's shoulder, slowing down at the shot
+const REC = { frames: [], shots: [], kills: [] }, REC_KEEP = 8;
+function recFrame() {
+  if (G.state !== 'play' && G.state !== 'ending' && !(G.state === 'pause' && NET.role !== 'off')) return;
+  const t = G.time, f = REC.frames, lastF = f[f.length - 1];
+  if (lastF && t - lastF.t < 1 / 40) return;
+  if (lastF && t < lastF.t) { f.length = 0; }
+  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0]) });
+  while (f.length && f[0].t < t - REC_KEEP) f.shift();
+  while (REC.shots.length && REC.shots[0].t < t - REC_KEEP) REC.shots.shift();
+}
+function recShot(a, b, col) { if (G.state === 'play' || G.state === 'ending' || G.state === 'pause') REC.shots.push({ t: G.time, a: a.slice(), b: b.slice(), col }); }
+function recKill(killer, victim, w, head) {
+  if (!killer || !victim || killer === victim) return;
+  REC.kills.push({ t: G.time, k: G.actors.indexOf(killer), v: G.actors.indexOf(victim), w, head: !!head });
+  if (REC.kills.length > 20) REC.kills.shift();
+}
+const RP = { on: false, t: 0, t0: 0, t1: 0, kill: null, proxies: [], meMesh: null, cam: null };
+// the final kill if it is in the recording, otherwise the MVP's latest kill
+function pickHighlight() {
+  const f = REC.frames; if (f.length < 20) return null;
+  const from = f[0].t + 1, inRec = k => k.t >= from && k.t <= f[f.length - 1].t + .05;
+  const last = REC.kills[REC.kills.length - 1];
+  if (last && inRec(last)) return { kill: last, tag: 'FINAL KILL' };
+  const mvp = G.actors.slice().sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)[0];
+  const mk = REC.kills.filter(k => G.actors[k.k] === mvp && inRec(k)).pop();
+  return mk ? { kill: mk, tag: 'MVP 하이라이트' } : null;
+}
+function startReplay() {
+  const h = pickHighlight(); if (!h) return false;
+  const f = REC.frames, k = h.kill;
+  RP.kill = k; RP.t0 = Math.max(f[0].t, k.t - 3.2); RP.t1 = Math.min(f[f.length - 1].t, k.t + 1.4); RP.t = RP.t0; RP.cam = null; RP.look = null; RP.shotI = 0; RP.on = true;
+  G.state = 'replay';
+  document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); $('endBan').hidden = true;
+  $('hud').hidden = true; $('touch').hidden = true; $('chat').hidden = true; $('centerMsg').hidden = true;
+  vm.root.visible = false; for (const tr of tracers) tr.line.visible = false;
+  // everyone gets a stand-in with a body, including me (normally a camera without a mesh)
+  if (!RP.meMesh) { RP.meMesh = soldier(me.team); scene.add(RP.meMesh); }
+  RP.proxies = G.actors.map(a => ({ mesh: a.isMe ? RP.meMesh : a.mesh, walkT: 0, deathT: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, dead: false }));
+  const kl = G.actors[k.k], vc = G.actors[k.v], cls = a => (a.team === 'blue' ? 'b' : 'r'), esc = t => String(t).replace(/[<>"&]/g, '');
+  $('kcTag').textContent = h.tag;
+  $('kcWho').innerHTML = `<span class="${cls(kl)}">${esc(kl.isMe ? netNick() + ' (나)' : kl.name)}</span> → <span class="${cls(vc)}">${esc(vc.isMe ? netNick() + ' (나)' : vc.name)}</span> · ${esc(k.w)}${k.head ? ' · <span class="hs">헤드샷</span>' : ''}`;
+  $('killcam').hidden = false;
+  return true;
+}
+function endReplay() {
+  RP.on = false; if ($('killcam')) $('killcam').hidden = true;
+  if (RP.meMesh) RP.meMesh.visible = false;
+  if (vm && vm.root) vm.root.visible = true;
+}
+function skipReplay() { if (G.state !== 'replay') return; endReplay(); showResults(); }
+// playback speed: normal, then slow motion from just before the shot until a moment after it
+function replaySpeed(t) { const d = t - RP.kill.t; return d > -.45 && d < .7 ? .28 : 1; }
+function sampleRec(t) {
+  const f = REC.frames; let i = 1;
+  while (i < f.length - 1 && f[i].t < t) i++;
+  const p = f[i - 1], q = f[i], k = Math.max(0, Math.min(1, (t - p.t) / Math.max(1e-4, q.t - p.t)));
+  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6]]; });
+}
+function updateReplay(dt) {
+  const step = dt * replaySpeed(RP.t), prevT = RP.t; RP.t += step;
+  const st = sampleRec(RP.t);
+  RP.proxies.forEach((p, i) => {
+    const r = st[i]; if (!r || !p.mesh) return;
+    const sp = Math.hypot(r[0] - p.x, r[2] - p.z) / Math.max(1e-4, step);
+    const wasDead = p.dead; p.dead = !!r[6];
+    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5];
+    if (p.dead) { if (!wasDead) p.deathT = 0; if (p.deathT > 2.2) { p.mesh.visible = false; } else { p.mesh.position.set(p.x, p.y, p.z); p.mesh.rotation.set(0, p.yaw, 0); deathPose(p, step); } }
+    else animateSoldier(p, step, Math.min(8, sp));
+  });
+  // shots fired in this slice: tracer, flash and sound
+  for (const sh of REC.shots) {
+    if (sh.t <= prevT || sh.t > RP.t) continue;
+    tracer(sh.a, sh.b, sh.col); worldFlash(sh.a, .35);
+    const c = camera.position, d = Math.hypot(sh.a[0] - c.x, sh.a[2] - c.z);
+    sfx('shot', .9 / (1 + d / 9));
+  }
+  if (Math.abs(RP.t - RP.kill.t) < step && RP.kill.head) sfx('hs', .6);
+  updateFx(step);
+  if (RP.t >= RP.t1) skipReplay();
+}
+function renderReplay(dt) {
+  const kp = RP.proxies[RP.kill.k], vp = RP.proxies[RP.kill.v];
+  if (!kp) return;
+  const eye = [kp.x, kp.y + (kp.crouch ? 1.15 : 1.6), kp.z];
+  // after the shot the camera swings slowly to the side so the victim's fall is in view
+  const after = Math.max(0, RP.t - RP.kill.t), orbit = Math.min(.9, after * 1.1);
+  const yaw = kp.yaw + orbit, fwd = [-Math.sin(yaw), 0, -Math.cos(yaw)], right = [Math.cos(yaw), 0, -Math.sin(yaw)];
+  const back = 2.6 + after * .8;
+  const want = [eye[0] - fwd[0] * back + right[0] * .7, eye[1] + .35 + after * .3, eye[2] - fwd[2] * back + right[2] * .7];
+  const dv = [want[0] - eye[0], want[1] - eye[1], want[2] - eye[2]], len = Math.hypot(...dv);
+  const hit = rayMap(eye, dv.map(v => v / len), len);
+  const kk = hit ? Math.max(.25, hit.t - .3) / len : 1;
+  const pos = [eye[0] + dv[0] * kk, eye[1] + dv[1] * kk, eye[2] + dv[2] * kk];
+  if (!RP.cam) RP.cam = pos.slice(); else for (let i = 0; i < 3; i++) RP.cam[i] += (pos[i] - RP.cam[i]) * Math.min(1, dt * 8);
+  camera.position.set(...RP.cam);
+  // look where the killer aims, and toward the victim once it falls
+  const aim = [eye[0] - Math.sin(kp.yaw) * Math.cos(kp.pitch) * 20, eye[1] + Math.sin(kp.pitch) * 20, eye[2] - Math.cos(kp.yaw) * Math.cos(kp.pitch) * 20];
+  const vt = vp ? [vp.x, vp.y + 1, vp.z] : aim, m = Math.min(1, after * 1.5);
+  const look = [aim[0] + (vt[0] - aim[0]) * m, aim[1] + (vt[1] - aim[1]) * m, aim[2] + (vt[2] - aim[2]) * m];
+  if (!RP.look) RP.look = look.slice(); else for (let i = 0; i < 3; i++) RP.look[i] += (look[i] - RP.look[i]) * Math.min(1, dt * 10);
+  camera.fov = 62; camera.updateProjectionMatrix();
+  camera.up.set(0, 1, 0); camera.lookAt(...RP.look);
+  shadowT += dt; if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
+  renderer.clear(); renderer.render(scene, camera);
+}
+window.addEventListener('keydown', e => { if (G.state === 'replay' && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) { e.preventDefault(); skipReplay(); } });
+window.addEventListener('mousedown', () => { if (G.state === 'replay') skipReplay(); }, true);
 // weapon silhouettes for the loadout cards (viewBox 0 0 120 34)
 const ICONS = {
   rifle: 'M6 15h12l4-4h48v-3h6v3h30v4h8v3H82l-4 3h-6l-3 10h-8l2-10H54l-4 8h-7l2-8H30l-6 6H8z',
@@ -2779,7 +2934,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-07 #13)';
+const GAME_VERSION = '1.0 (10-07 #14)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -2826,6 +2981,8 @@ $('overlay').addEventListener('click', e => {
   if (b.dataset.act === 'join') netJoin(($('joinCode').value || '').trim());
   if (b.dataset.act === 'netstart') netStartMatch();
   if (b.dataset.act === 'invite') netCopyInvite();
+  if (b.dataset.act === 'fullscreen') toggleFullscreen(b);
+  if (b.dataset.act === 'keyguide') toggleKeyGuide();
 });
 
 // =============== online: two players over a peer-to-peer connection ===============
@@ -3134,6 +3291,7 @@ function netOnMessage(m) {
   else if (m.t === 'bye') netLost();
 }
 function pushFeedLocal(killer, victim, w, head) {
+  recKill(killer, victim, w, head);
   const cls = x => (x.team === 'blue' ? 'b' : 'r'), esc = t => String(t).replace(/[<>"&]/g, '');
   feed.unshift({ html: killer === victim ? `<span class="${cls(victim)}">${esc(victim.name)}</span> <span class="w">자폭</span>`
     : `<span class="${cls(killer)}">${esc(killer.name)}</span> <span class="w">${esc(w)}</span>${head ? '<span class="hs">헤드샷</span> ' : ''}<span class="${cls(victim)}">${esc(victim.name)}</span>`,
@@ -3332,11 +3490,13 @@ function frame(ts) {
     showCenter(Math.max(1, Math.ceil(G.countdown)), '전투 준비');
     if (G.countdown <= 0) { G.state = 'play'; $('centerMsg').hidden = true; }
   }
+  recFrame();
   if (G.state === 'play' || (NET.role !== 'off' && G.state === 'pause' && G.resume === 'play')) for (let i = 0; i < n && G.state !== 'ending' && G.state !== 'over'; i++) step(dt);   // online games keep running while paused
   else if (G.state === 'ending') {
     for (let i = 0; i < n; i++) { G.endT += dt; step(dt * (G.endT < .25 ? 1 - (1 - END_SLOW) * G.endT / .25 : END_SLOW)); }
-    if (G.endT >= END_TIME) showResults();
-  } else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe && !a.remote) updateBot(a, 0); }
+    if (G.endT >= END_TIME) { if (!startReplay()) showResults(); }
+  } else if (G.state === 'replay') updateReplay(full);
+  else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe && !a.remote) updateBot(a, 0); }
   render(full);
   requestAnimationFrame(frame);
 }
@@ -3361,6 +3521,7 @@ function step(dt) {
 }
 let shadowT = 1;
 function render(dt) {
+  if (G.state === 'replay') { renderReplay(dt); return; }
   if (G.state !== 'menu') {
     if (G.state !== 'pause') updateFx(dt);
     updateNadeArc();
