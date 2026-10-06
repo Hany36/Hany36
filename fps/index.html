@@ -1198,7 +1198,7 @@ function boxGeometry(sx, sy, sz, tile) {
 
 // =============== three.js setup ===============
 const canvas = document.getElementById('view');
-let renderer, scene, camera, vmScene, vmCamera, vm, sun;
+let renderer, scene, camera, vmScene, vmCamera, vm, sun, GPU_NAME = '', GPU_SOFT = false;
 const pointLights = [];
 // Material colours are written as sRGB hex values; convert them so they render as authored with sRGB output.
 const std = (o) => {
@@ -1237,10 +1237,17 @@ function applyQuality() {
 function initThree() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.autoClear = false;
+  // which graphics chip the browser actually uses (a software renderer means hardware acceleration is off)
+  try {
+    const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+    GPU_NAME = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER) || '');
+  } catch (e) { GPU_NAME = ''; }
+  GPU_SOFT = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(GPU_NAME);
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;   // the soft variant costs far more per pixel for a barely visible difference at this map size
+  renderer.shadowMap.autoUpdate = false;            // redrawn at most 60 times a second (see render), not on every frame of a 144/165 Hz screen
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(new THREE.Color(MAP_META.fog).convertSRGBToLinear(), 45, 150);
   camera = new THREE.PerspectiveCamera(75, 1, .05, 400);
@@ -2758,7 +2765,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '10-06 #9';
+const GAME_VERSION = '10-06 #10';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -2769,7 +2776,8 @@ function showMenu() {
     ${controlsHtml()}
     <button class="btn" type="button" data-act="start">전투 시작 (봇전)</button>
     <button class="btn ghost" type="button" data-act="online">친구와 온라인으로 하기</button>
-    <p style="margin:10px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}</p>`;
+    ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요.</p>` : ''}
+    <p style="margin:10px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
   bindSliders();
   $('overlay').hidden = false;
 }
@@ -3283,6 +3291,7 @@ function step(dt) {
   updatePickups(dt);
   if (NET.role === 'host') { netHostTick(dt); netPingTick(dt); }
 }
+let shadowT = 1;
 function render(dt) {
   if (G.state !== 'menu') {
     if (G.state !== 'pause') updateFx(dt);
@@ -3325,6 +3334,8 @@ function render(dt) {
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
     vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - (vm.knifeT > 0 ? Math.sin(vm.knifeT / .25 * Math.PI) * .9 : 0) - vm.sprintK * .12, vm.sprintK * .45, rl * .3 + bolt * .2 + vm.sprintK * .2);
     vm.flash.position.set(0, .01, FLASH_Z[weapon] || -.6);
+    shadowT += dt;
+    if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
     renderer.clear();
     renderer.render(scene, camera);
     renderer.clearDepth();
@@ -3336,7 +3347,7 @@ function render(dt) {
     camera.position.set(cx + Math.sin(t) * .5, cy, cz);
     camera.rotation.set(-.05, cyaw + Math.sin(t * .6) * .25, 0);
     camera.fov = 65; camera.updateProjectionMatrix();
-    renderer.clear(); renderer.render(scene, camera);
+    renderer.shadowMap.needsUpdate = true; renderer.clear(); renderer.render(scene, camera);
   }
 }
 
