@@ -2765,7 +2765,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '10-06 #10';
+const GAME_VERSION = '10-06 #11';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -2776,7 +2776,7 @@ function showMenu() {
     ${controlsHtml()}
     <button class="btn" type="button" data-act="start">전투 시작 (봇전)</button>
     <button class="btn ghost" type="button" data-act="online">친구와 온라인으로 하기</button>
-    ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요.</p>` : ''}
+    ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요. 브라우저 설정을 바꾸기 싫다면 Windows에서 <a href="SupplyOp.bat" download style="color:inherit;text-decoration:underline">게임 전용 창 실행 파일</a>을 받아 실행해 보세요(평소 브라우저 설정은 그대로 두고, 게임 창에서만 그래픽카드를 써요).</p>` : ''}
     <p style="margin:10px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
   bindSliders();
   $('overlay').hidden = false;
