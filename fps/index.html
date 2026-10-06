@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>보급기지 작전</title>
+<title>Jammini_FPS_1.0</title>
+<link rel="icon" type="image/png" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@500;700&display=swap">
@@ -63,6 +64,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .feed .b { color: var(--blue); font-weight: 700; } .feed .r { color: var(--red); font-weight: 700; }
 .feed .w { color: var(--muted); padding-inline: 6px; } .feed .hs { color: var(--amber); font-weight: 700; }
 .feed .me { outline: 1px solid var(--amber); }
+.chat { position: fixed; left: 10px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); width: min(380px, calc(100% - 20px)); display: flex; flex-direction: column; gap: 3px; pointer-events: none; z-index: 6; }
+.chat .log { display: flex; flex-direction: column; gap: 2px; }
+.chat .log div { align-self: flex-start; max-width: 100%; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.45); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; transition: opacity .6s; }
+.chat .log b { margin-right: 6px; } .chat .log .mine b { color: var(--amber); } .chat .log .sys { color: var(--muted); }
+.chat input { pointer-events: auto; font: inherit; font-size: 14px; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--amber); background: rgba(10,12,10,.85); color: #fff; outline: none; }
+.lchat { margin: 8px 0; text-align: left; }
+.lchat .log { max-height: 130px; overflow-y: auto; padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,.3); font-size: 13px; line-height: 1.4; min-height: 40px; }
+.lchat .log b { margin-right: 6px; } .lchat .log .mine b { color: var(--amber); } .lchat .log .sys { color: var(--muted); }
+.lchat input { width: 100%; box-sizing: border-box; margin-top: 6px; font: inherit; font-size: 14px; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line); background: rgba(0,0,0,.35); color: inherit; }
 .hp { position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); padding: 6px 12px; border-radius: 8px; background: var(--hud); display: flex; align-items: center; gap: 10px; }
 .hp b { font: 700 30px/1 var(--font-num); min-width: 2.2em; }
 .hp .bar { width: 120px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.15); overflow: hidden; }
@@ -195,6 +205,7 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 <canvas id="view" aria-label="게임 화면"></canvas>
 <div class="vignette"></div>
 
+<div class="chat" id="chat" hidden><div class="log" id="chatLog"></div><input id="chatIn" maxlength="100" placeholder="메시지 입력 · Enter 보내기 · Esc 닫기" autocomplete="off" hidden></div>
 <div class="hud" id="hud" hidden>
   <div class="scope" id="scope" hidden></div>
   <div class="hurt" id="hurt"></div>
@@ -2452,6 +2463,8 @@ let locked = false, lockFallback = false;
 const playing = () => G.state === 'play';
 window.addEventListener('keydown', e => {
   if (G.state !== 'play' && G.state !== 'count') return;
+  if (chatOpen || e.target.tagName === 'INPUT') return;
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
   if (e.repeat) return;
   keys[e.code] = true;
@@ -2477,6 +2490,7 @@ canvas.addEventListener('wheel', e => {
 }, { passive: true });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
+  if (!locked && chatOpen) closeChat();
   if (!locked && (G.state === 'play' || G.state === 'count') && !touch && !lockFallback) pauseGame();
 });
 function look(dx, dy, k) {
@@ -2765,18 +2779,18 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '10-06 #12';
+const GAME_VERSION = '1.0 (10-07 #13)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
   $('card').innerHTML = `
-    <h1>보급기지 작전<small>TEAM DEATHMATCH 5 VS 5</small></h1>
+    <h1>Jammini_FPS_1.0<small>TEAM DEATHMATCH 5 VS 5</small></h1>
     <p>${MAP_META.desc}에서 아군 봇 4명과 함께 레드 팀 봇 5명을 상대해요. 먼저 목표 킬을 내거나 제한 시간이 끝났을 때 앞선 팀이 이겨요.</p>
     ${settingsHtml(false)}
     ${controlsHtml()}
     <button class="btn" type="button" data-act="start">전투 시작 (봇전)</button>
     <button class="btn ghost" type="button" data-act="online">친구와 온라인으로 하기</button>
-    ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요. 브라우저 설정을 바꾸기 싫다면 Windows용 <a href="https://github.com/Hany36/Hany36/releases/download/desktop/SupplyOp.exe" style="color:inherit;text-decoration:underline">PC 버전(SupplyOp.exe)</a>이나 <a href="SupplyOp.bat" download style="color:inherit;text-decoration:underline">게임 전용 창 실행 파일</a>을 받아 실행해 보세요(평소 브라우저 설정은 그대로 두고, 게임에서만 그래픽카드를 써요).</p>` : ''}
+    ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요. 브라우저 설정을 바꾸기 싫다면 Windows용 <a href="https://github.com/Hany36/Hany36/releases/tag/desktop" target="_blank" style="color:inherit;text-decoration:underline">PC 버전(Jammini_FPS_1.0.exe)</a>이나 <a href="Jammini_FPS_1.0.bat" download style="color:inherit;text-decoration:underline">게임 전용 창 실행 파일</a>을 받아 실행해 보세요(평소 브라우저 설정은 그대로 두고, 게임에서만 그래픽카드를 써요).</p>` : ''}
     <p style="margin:10px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
   bindSliders();
   $('overlay').hidden = false;
@@ -2933,6 +2947,7 @@ function showOnline(msg) {
   $('overlay').hidden = false;
 }
 function showLobby() {
+  const prevIn = $('lobbyChatIn'), keepText = prevIn ? prevIn.value : '', keepFocus = prevIn && document.activeElement === prevIn;
   NET.lobby = true; loadoutOpen = false; G.state = 'menu'; $('card').className = 'card';
   const host = NET.role === 'host', joined = !!(NET.conn && NET.conn.open && NET.peerName);
   const mapName = host ? MAP_META.n : (MAPS[NET.cfg && NET.cfg.map] || MAP_META).n;
@@ -2950,11 +2965,63 @@ function showLobby() {
       <button type="button" ${host ? 'data-act="netmode" data-val="versus"' : 'disabled'} aria-pressed="${NET.mode === 'versus'}">대결 · 상대 팀</button>
     </div>
     <p class="keep" id="netStatus">${NET.state || ''}</p>
+    <div class="lchat"><div class="log" id="lobbyLog">${chatLines(30)}</div><input id="lobbyChatIn" maxlength="100" placeholder="채팅 · Enter로 보내기" autocomplete="off"></div>
     <button class="btn ghost" type="button" data-act="start">무기 선택</button>
     ${host ? `<button class="btn" type="button" data-act="netstart" ${joined ? '' : 'disabled'}>시작</button>` : ''}
     <button class="btn ghost" type="button" data-act="menu">나가기</button>`;
   $('overlay').hidden = false;
+  const li = $('lobbyChatIn'); li.value = keepText; if (keepFocus) li.focus();
+  const ll = $('lobbyLog'); ll.scrollTop = ll.scrollHeight;
 }
+// ---- chat: Enter opens it in a match (lobby has its own box); online it goes to the other player
+let chatOpen = false;
+const CHAT = [];   // { name, text, mine, sys, t }
+const chatEsc = t => String(t).replace(/[<>"&]/g, c => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;', '&': '&amp;' }[c]));
+function chatLines(n) {
+  return CHAT.slice(-n).map(c => c.sys ? `<div class="sys">${chatEsc(c.text)}</div>` : `<div class="${c.mine ? 'mine' : ''}"><b>${chatEsc(c.name)}</b>${chatEsc(c.text)}</div>`).join('');
+}
+function chatAdd(name, text, mine, sys) {
+  CHAT.push({ name, text, mine, sys, t: performance.now() }); if (CHAT.length > 60) CHAT.shift();
+  if (!mine && !sys) sfx('pick', .25);
+  renderChat();
+  const ll = $('lobbyLog'); if (ll) { ll.innerHTML = chatLines(30); ll.scrollTop = ll.scrollHeight; }
+}
+function chatSend(text) {
+  text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  if (!text) return;
+  chatAdd(netNick(), text, true);
+  if (NET.role !== 'off') netSend({ t: 'chat', n: netNick(), m: text });
+}
+// in-match log: the last few lines fade after 10 s, all of them stay while typing
+function renderChat() {
+  const box = $('chat'); if (!box) return;
+  const inMatch = G.state !== 'menu' && !$('hud').hidden;
+  box.hidden = !inMatch;
+  if (!inMatch) return;
+  const now = performance.now(), recent = CHAT.slice(-7);
+  $('chatLog').innerHTML = recent.map(c => {
+    const old = !chatOpen && now - c.t > 10000;
+    return old ? '' : (c.sys ? `<div class="sys">${chatEsc(c.text)}</div>` : `<div class="${c.mine ? 'mine' : ''}"><b>${chatEsc(c.name)}</b>${chatEsc(c.text)}</div>`);
+  }).join('');
+}
+function openChat() {
+  chatOpen = true; for (const k in keys) keys[k] = false; triggerHeld = false;
+  const inp = $('chatIn'); inp.hidden = false; inp.value = ''; renderChat(); inp.focus();
+}
+function closeChat() {
+  chatOpen = false; const inp = $('chatIn'); inp.hidden = true; inp.blur(); renderChat();
+}
+function chatKey(e, inp, inMatch) {
+  if (e.isComposing || e.keyCode === 229) return;             // Korean input still composing a syllable
+  if (e.key === 'Enter') { e.preventDefault(); chatSend(inp.value); inp.value = ''; if (inMatch) closeChat(); }
+  else if (e.key === 'Escape' && inMatch) { e.preventDefault(); closeChat(); }
+  e.stopPropagation();
+}
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'chatIn') chatKey(e, e.target, true);
+  else if (e.target.id === 'lobbyChatIn') chatKey(e, e.target, false);
+}, true);
+setInterval(() => { if (!chatOpen) renderChat(); }, 1000);
 // ---- connecting
 const NET_CODE_CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function netHost() {
@@ -3020,6 +3087,7 @@ function netSendLobby() {
 }
 // ---- messages
 function netOnMessage(m) {
+  if (m.t === 'chat') { const text = String(m.m || '').slice(0, 100); if (text) chatAdd(String(m.n || (NET.role === 'host' ? '친구' : '방장')).slice(0, 10), text, false); return; }
   if (m.t === 'pg') { netSend({ t: 'po', ts: m.ts }); return; }
   if (m.t === 'po') { if (Number.isFinite(m.ts)) { const rtt = (netNow() - m.ts) * 1000; NET.ping = NET.ping ? NET.ping + (rtt - NET.ping) * .3 : rtt; } return; }
   if (NET.role === 'host') {

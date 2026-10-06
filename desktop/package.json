@@ -1,8 +1,8 @@
 {
-  "name": "supplyop",
-  "productName": "SupplyOp",
+  "name": "jammini-fps",
+  "productName": "Jammini_FPS_1.0",
   "version": "1.0.1",
-  "description": "보급기지 작전 PC 버전",
+  "description": "Jammini_FPS_1.0",
   "author": "Hany36",
   "main": "main.js",
   "private": true,
@@ -15,10 +15,22 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "io.github.hany36.supplyop",
-    "productName": "SupplyOp",
-    "files": ["main.js", "offline/**"],
-    "win": { "target": "portable" },
-    "portable": { "artifactName": "SupplyOp.exe" }
+    "appId": "io.github.hany36.jammini-fps",
+    "productName": "Jammini_FPS_1.0",
+    "files": [
+      "main.js",
+      "offline/**",
+      "icon.png"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "Jammini_FPS_1.0.exe"
+    },
+    "directories": {
+      "buildResources": "build"
+    }
   }
 }

@@ -1,4 +1,4 @@
-// 보급기지 작전 PC version: a window that opens the online game with the graphics card turned on,
+// Jammini_FPS_1.0 PC version: a window that opens the online game with the graphics card turned on,
 // whatever the browser's own settings are. It always loads the newest upload; offline it falls back to a bundled copy.
 const { app, BrowserWindow, Menu, session, shell } = require('electron');
 const path = require('path');
@@ -10,7 +10,7 @@ app.commandLine.appendSwitch('force_high_performance_gpu');    // laptops: the N
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1600, height: 900, backgroundColor: '#101210', title: '보급기지 작전', show: false,
+    width: 1600, height: 900, backgroundColor: '#101210', title: 'Jammini_FPS_1.0', icon: path.join(__dirname, 'icon.png'), show: false,
     webPreferences: { backgroundThrottling: false },
   });
   win.once('ready-to-show', () => { win.maximize(); win.show(); });

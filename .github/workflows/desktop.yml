@@ -1,9 +1,7 @@
-# Builds the Windows PC version (desktop/) and puts SupplyOp.exe on the "desktop" release page.
+# Builds the Windows PC version (desktop/) and puts Jammini_FPS_1.0.exe on the "desktop" release page.
 name: PC 버전 빌드
+# runs only when started by hand (Actions → PC 버전 빌드 → Run workflow), so everyday game updates don't rebuild the .exe
 on:
-  push:
-    branches: [claude/jolly-pascal-dtmrqz]
-    paths: ['desktop/**', '.github/workflows/desktop.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -29,10 +27,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: desktop
-          name: 보급기지 작전 PC 버전
+          name: Jammini_FPS_1.0 PC 버전
           body: |
-            SupplyOp.exe를 받아 실행하세요. 설치 없이 바로 열리고, 게임은 항상 최신 버전으로 불러옵니다.
+            Jammini_FPS_1.0.exe를 받아 실행하세요. 설치 없이 바로 열리고, 게임은 항상 최신 버전으로 불러옵니다.
             처음 실행할 때 Windows가 "PC 보호" 화면을 띄우면 "추가 정보 → 실행"을 누르세요(서명되지 않은 개인 프로그램이라 뜹니다).
             F11 전체 화면, F5 새로고침.
-          files: desktop/dist/SupplyOp.exe
+          files: desktop/dist/Jammini_FPS_1.0.exe
           make_latest: true
