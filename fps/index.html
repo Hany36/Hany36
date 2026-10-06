@@ -82,6 +82,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .killcam .kctag { position: absolute; left: 4vw; top: calc(9vh + 18px); font: 800 clamp(22px, 4vw, 40px)/1 var(--font-num); letter-spacing: .18em; color: var(--amber); text-shadow: 0 2px 10px rgba(0,0,0,.7); animation: banSub .5s ease-out both; }
 .killcam .kcwho { position: absolute; left: 4vw; top: calc(9vh + 18px + clamp(30px, 5vw, 50px)); font-size: clamp(15px, 2vw, 20px); text-shadow: 0 2px 6px #000; }
 .killcam .kcwho .b { color: var(--blue); font-weight: 700; } .killcam .kcwho .r { color: var(--red); font-weight: 700; } .killcam .kcwho .hs { color: var(--amber); font-weight: 700; }
+.killcam::after { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity .25s; background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.6) 100%); }
+.killcam.bullet::after { opacity: 1; }
 .killcam .kcskip { position: absolute; right: 4vw; bottom: calc(9vh + 14px); font-size: 12px; color: var(--muted); }
 .grps { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .grpbtn { display: flex; align-items: center; gap: 10px; text-align: left; padding-inline: 14px; }
@@ -1546,14 +1548,17 @@ function soldier(team) {
   mask.rotation.y = Math.PI; mask.position.set(0, .76, -.01); torso.add(mask);
   torso.add(meshAt(new THREE.BoxGeometry(.3, .36, .14), MAT.vest[team], 0, .38, .2));               // backpack
   torso.add(meshAt(new THREE.CylinderGeometry(.008, .008, .35, 6), MAT.gun, .1, .7, .24));          // radio antenna
-  // arms holding the rifle, team armbands on both upper arms
-  torso.add(limb([-.2, .55, 0], [-.16, .32, -.22], .055, .05, camo), limb([-.16, .32, -.22], [-.02, .38, -.44], .05, .045, camo));
-  torso.add(limb([.2, .55, 0], [.2, .3, -.06], .055, .05, camo), limb([.2, .3, -.06], [.07, .36, -.16], .05, .045, camo));
-  torso.add(limb([-.19, .5, -.03], [-.18, .44, -.09], .065, .065, MAT.band[team]), limb([.2, .5, 0], [.2, .44, -.02], .065, .065, MAT.band[team]));
-  const gun = rifleModel(1.05); gun.position.set(.06, .41, -.3); torso.add(gun);
+  // arms holding the rifle (team armbands on both upper arms), on a shoulder pivot: raised to the eye when aiming,
+  // lowered when sprinting
+  const arms = new THREE.Group(); arms.position.y = .55; torso.add(arms);
+  const P = v => [v[0], v[1] - .55, v[2]];
+  arms.add(limb(P([-.2, .55, 0]), P([-.16, .32, -.22]), .055, .05, camo), limb(P([-.16, .32, -.22]), P([-.02, .38, -.44]), .05, .045, camo));
+  arms.add(limb(P([.2, .55, 0]), P([.2, .3, -.06]), .055, .05, camo), limb(P([.2, .3, -.06]), P([.07, .36, -.16]), .05, .045, camo));
+  arms.add(limb(P([-.19, .5, -.03]), P([-.18, .44, -.09]), .065, .065, MAT.band[team]), limb(P([.2, .5, 0]), P([.2, .44, -.02]), .065, .065, MAT.band[team]));
+  const gun = rifleModel(1.05); gun.position.set(.06, .41 - .55, -.3); arms.add(gun);
   g.add(hipL, hipR, torso);
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  g.userData = { hipL, hipR, torso, gun };
+  g.userData = { hipL, hipR, torso, gun, arms };
   return g;
 }
 function allyMarker() {
@@ -1670,7 +1675,6 @@ function burst(p, col, n, spd, life) {
   }
 }
 function tracer(a, b, col = 0xffe2a0) {
-  if (G.state !== 'replay') recShot(a, b, col);
   const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
   const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: .7 }));
   fxGroup.add(line); tracers.push({ line, t: 0 });
@@ -2127,7 +2131,9 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
   const gunPos = shooter.isMe
     ? [o[0] - Math.sin(me.yaw) * .5 + Math.cos(me.yaw) * .14, o[1] - .12, o[2] - Math.cos(me.yaw) * .5 - Math.sin(me.yaw) * .14]
     : muzzleOf(shooter);
-  if (Math.random() < (shooter.isMe ? (w.pellets ? .25 : .45) : .35)) tracer(gunPos, end, shooter.isMe ? 0xffe2a0 : 0xffc070);
+  const vis = Math.random() < (shooter.isMe ? (w.pellets ? .25 : .45) : .35), tcol = shooter.isMe ? 0xffe2a0 : 0xffc070;
+  if (vis) tracer(gunPos, end, tcol);
+  recShot(gunPos, end, tcol, G.actors.indexOf(shooter), vis);
   if (NET.role === 'host' && !shooter.remote) netShot(shooter, end);
   if (NET.role === 'client' && shooter.isMe) netSend({ t: 'shot', e: end.map(v => +v.toFixed(2)) });
   if (ah) {
@@ -2143,7 +2149,8 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
 }
 function muzzleOf(a) {
   const s = Math.sin(a.yaw), c = Math.cos(a.yaw);
-  return [a.x - s * .95 + c * .06, a.y + (a.crouch ? .95 : 1.34), a.z - c * .95 - s * .06];
+  const [lx, lz] = leanVec(a), up = (a.aimK || 0) * .22;
+  return [a.x + lx - s * .95 + c * .06, a.y + (a.crouch ? .9 : 1.34) + up, a.z + lz - c * .95 - s * .06];
 }
 // launch state of a grenade thrown by actor a (position and velocity)
 function nadeLaunch(a) {
@@ -2210,6 +2217,7 @@ function updateNades(dt) {
     if (p.t >= NADE.fuse) {
       scene.remove(p.mesh); G.nades.splice(i, 1);
       const c = [p.x, p.y + .2, p.z];
+      recBoom(c);
       explosionFx(c);
       if (NET.role === 'host') netSend({ t: 'boom', p: c });
       sfx('boom', 1 / (1 + Math.hypot(me.x - p.x, me.z - p.z) / 12));
@@ -2286,16 +2294,36 @@ function deathPose(a, dt) {
   if (a.deathT > 2.2) a.mesh.visible = false;
 }
 // walk cycle with knee bend; crouch lowers the body (bots and remote players)
+// The model faces -z: a positive x rotation swings a thigh forward, a negative one folds the shin back at the knee.
 function animateSoldier(a, dt, sp) {
-  a.walkT += dt * sp * 2.1;
-  const u = a.mesh.userData, swing = sp > .2 ? Math.sin(a.walkT) * .55 : 0;
-  u.hipL.rotation.x = swing; u.hipR.rotation.x = -swing;
-  u.hipL.userData.knee.rotation.x = a.crouch ? 1.6 : Math.max(0, -Math.sin(a.walkT)) * .9 * (sp > .2 ? 1 : 0);
-  u.hipR.userData.knee.rotation.x = a.crouch ? 1.6 : Math.max(0, Math.sin(a.walkT)) * .9 * (sp > .2 ? 1 : 0);
-  if (a.crouch) { u.hipL.rotation.x = u.hipR.rotation.x = -1.1; }
-  const hy = a.crouch ? .55 : .92 + Math.abs(Math.sin(a.walkT)) * .02;
+  const sprint = !!a.sprintF && !a.crouch && sp > 4, k = Math.min(1, dt * 10);
+  a.walkT += dt * sp * (sprint ? 1.7 : 2.1);
+  const u = a.mesh.userData, moving = sp > .2, amp = sprint ? .8 : a.crouch ? .3 : .55, swing = moving ? Math.sin(a.walkT) * amp : 0;
+  const bend = sprint ? 1.35 : .9;
+  if (a.crouch) {
+    // knees forward, shins folded back under the body; a small shuffle when moving
+    u.hipL.rotation.x = 1.15 + swing; u.hipR.rotation.x = 1.15 - swing;
+    u.hipL.userData.knee.rotation.x = -2.05 - Math.max(0, swing) * .4; u.hipR.userData.knee.rotation.x = -2.05 - Math.max(0, -swing) * .4;
+  } else {
+    u.hipL.rotation.x = swing; u.hipR.rotation.x = -swing;
+    // the leg swinging back (behind the body) is the one that folds at the knee
+    u.hipL.userData.knee.rotation.x = -Math.max(0, -Math.sin(a.walkT)) * bend * (moving ? 1 : 0);
+    u.hipR.userData.knee.rotation.x = -Math.max(0, Math.sin(a.walkT)) * bend * (moving ? 1 : 0);
+  }
+  const hy = a.crouch ? .5 : .92 + Math.abs(Math.sin(a.walkT)) * (sprint ? .05 : .02);
   u.torso.position.y = hy; u.hipL.position.y = u.hipR.position.y = hy;
-  u.torso.rotation.x = -a.pitch * .35;
+  // rifle pose: raised to the eye when aiming, carried low when sprinting
+  a.aimK = (a.aimK || 0) + ((a.aiming && !sprint ? 1 : 0) - (a.aimK || 0)) * k;
+  a.sprintK = (a.sprintK || 0) + ((sprint ? 1 : 0) - (a.sprintK || 0)) * k;
+  if (u.arms) { u.arms.rotation.x = a.aimK * .75 - a.sprintK * .6; u.gun.rotation.x = -a.aimK * .75 + a.sprintK * .25; u.arms.rotation.y = a.sprintK * .35; }
+  // leaning: the upper body tilts and slides to the side the player peeks
+  const lean = (a.leanOff || 0) / LEAN_DIST;
+  a.leanK = (a.leanK || 0) + (lean - (a.leanK || 0)) * k;
+  u.torso.position.x = a.leanK * LEAN_DIST * .35;
+  u.torso.rotation.z = -a.leanK * .38;
+  // looking up tilts the chest back and the rifle up (a positive x rotation lifts the -z side); sprinting and crouching lean forward
+  u.torso.rotation.x = a.pitch * .35 - a.sprintK * .22 + (a.crouch ? -.12 : 0);
+  if (u.arms) u.arms.rotation.x += a.pitch * .5 * (1 - a.sprintK);
   a.mesh.visible = true; a.mesh.rotation.x = 0;
   a.mesh.position.set(a.x, a.y, a.z); a.mesh.rotation.set(0, a.yaw, 0);
 }
@@ -2313,7 +2341,7 @@ function updateBot(a, dt) {
       if (d < bd && botSees(a, t)) { best = t; bd = d; }
     }
     if (best && best !== ai.target) { ai.seeT = 0; ai.burst = 0; ai.cool = .1; }
-    ai.target = best;
+    ai.target = best; a.aiming = !!best;
     if (best) { ai.lastSeen = [best.x, best.z, layerOf(best.y)]; best.spotted = 2; }
   }
   let mvx = 0, mvz = 0;
@@ -2737,7 +2765,7 @@ function resumeGame() { loadoutOpen = false; $('overlay').hidden = true; G.state
 const END_SLOW = .2, END_TIME = 3.4;
 function endMatch() {
   if (G.state === 'ending' || G.state === 'over') return;
-  G.state = 'ending'; G.endT = 0; cancelNadeAim();
+  G.state = 'ending'; G.endT = 0; G.endAt = G.time; cancelNadeAim();
   const mine = G.score[me.team], theirs = G.score[me.team === 'blue' ? 'red' : 'blue'];
   G.result = mine > theirs ? 'win' : mine < theirs ? 'lose' : 'draw';
   if (NET.role === 'host') netSend({ t: 'end', s: [G.score.blue, G.score.red] });
@@ -2770,40 +2798,107 @@ function showResults() {
     <button class="btn ghost" type="button" data-act="menu">메인 메뉴로</button>`;
   $('overlay').hidden = false;
 }
-function clearEnding() { REC.frames = []; REC.shots = []; REC.kills = []; endReplay(); $('endBan').hidden = true; document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); }
+function clearEnding() { REC.frames = []; REC.shots = []; REC.kills = []; REC.booms = []; BEST = null; STREAKS = {}; endReplay(); $('endBan').hidden = true; document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); }
 // ---- final-kill highlight: the last few seconds are recorded (positions of everyone, shots, kills);
 // when the match ends the decisive kill is replayed over the killer's shoulder, slowing down at the shot
-const REC = { frames: [], shots: [], kills: [] }, REC_KEEP = 8;
+const REC = { frames: [], shots: [], kills: [], booms: [] }, REC_KEEP = 13;
+// best play of the match: kill streaks (kills by one player less than 4 s apart) are scored a moment after their last kill,
+// and the highest-scoring one keeps its own copy of the recording
+let BEST = null, STREAKS = {};
+let NADE_SEQ = 0;
 function recFrame() {
   if (G.state !== 'play' && G.state !== 'ending' && !(G.state === 'pause' && NET.role !== 'off')) return;
   const t = G.time, f = REC.frames, lastF = f[f.length - 1];
   if (lastF && t - lastF.t < 1 / 40) return;
   if (lastF && t < lastF.t) { f.length = 0; }
-  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0]) });
+  // grenades in flight, each with an id so one can be followed (the friend's game only knows them by slot)
+  const n = NET.role === 'client' ? NET.nadeMeshes.map((m, i) => m.visible ? [1000 + i, m.position.x, m.position.y, m.position.z] : null).filter(Boolean)
+    : G.nades.map(p => [p.id || (p.id = ++NADE_SEQ), p.x, p.y, p.z]);
+  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0, (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, a.leanOff || 0]), n });
   while (f.length && f[0].t < t - REC_KEEP) f.shift();
   while (REC.shots.length && REC.shots[0].t < t - REC_KEEP) REC.shots.shift();
+  for (const id in STREAKS) { const st = STREAKS[id]; if (st.captureAt && t >= st.captureAt) captureStreak(st); }
 }
-function recShot(a, b, col) { if (G.state === 'play' || G.state === 'ending' || G.state === 'pause') REC.shots.push({ t: G.time, a: a.slice(), b: b.slice(), col }); }
+const STREAK_NAMES = ['', '', '더블 킬', '트리플 킬', '쿼드라 킬', '펜타 킬', '헥사 킬'];
+function playScore(kills) {
+  let sc = 0;
+  kills.forEach((k, i) => { sc += 1 + i * .8 + (k.head ? .5 : 0) + (k.w === WEAPONS.knife.n ? 1 : 0) + (k.w === NADE.n ? .5 : 0) + (k.dist > 30 ? .7 : 0); });
+  return sc + (G.actors[kills[0].k] && G.actors[kills[0].k].isMe ? .3 : 0);
+}
+function captureStreak(st) {
+  st.captureAt = null;
+  const sc = playScore(st.kills); if (BEST && BEST.score >= sc) return;
+  const from = st.kills[0].t - 3;
+  BEST = { score: sc, kills: st.kills.slice(), src: { frames: REC.frames.filter(f => f.t >= from), shots: REC.shots.filter(x => x.t >= from), booms: REC.booms.filter(x => x.t >= from) } };
+}
+function recBoom(p) { REC.booms.push({ t: G.time, p: p.slice() }); if (REC.booms.length > 20) REC.booms.shift(); }
+function recShot(a, b, col, who = -1, vis = true) { if (G.state === 'play' || G.state === 'ending' || G.state === 'pause') REC.shots.push({ t: G.time, a: a.slice(), b: b.slice(), col, who, vis }); }
 function recKill(killer, victim, w, head) {
   if (!killer || !victim || killer === victim) return;
-  REC.kills.push({ t: G.time, k: G.actors.indexOf(killer), v: G.actors.indexOf(victim), w, head: !!head });
-  if (REC.kills.length > 20) REC.kills.shift();
+  if (G.state !== 'play') return;                        // kills after the match was decided don't count
+  const kill = { t: G.time, k: G.actors.indexOf(killer), v: G.actors.indexOf(victim), w, head: !!head, dist: Math.hypot(killer.x - victim.x, killer.z - victim.z) };
+  REC.kills.push(kill);
+  if (REC.kills.length > 30) REC.kills.shift();
+  let st = STREAKS[kill.k];
+  if (!st || kill.t - st.kills[st.kills.length - 1].t > 4) st = STREAKS[kill.k] = { kills: [] };
+  st.kills.push(kill); st.captureAt = kill.t + 1.6;
 }
 const RP = { on: false, t: 0, t0: 0, t1: 0, kill: null, proxies: [], meMesh: null, cam: null };
 // the final kill if it is in the recording, otherwise the MVP's latest kill
+// The best play of the match when it was a great one, otherwise the winning team's last kill before the match was decided.
 function pickHighlight() {
-  const f = REC.frames; if (f.length < 20) return null;
-  const from = f[0].t + 1, inRec = k => k.t >= from && k.t <= f[f.length - 1].t + .05;
-  const last = REC.kills[REC.kills.length - 1];
-  if (last && inRec(last)) return { kill: last, tag: 'FINAL KILL' };
-  const mvp = G.actors.slice().sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)[0];
-  const mk = REC.kills.filter(k => G.actors[k.k] === mvp && inRec(k)).pop();
-  return mk ? { kill: mk, tag: 'MVP 하이라이트' } : null;
+  for (const id in STREAKS) if (STREAKS[id].captureAt) captureStreak(STREAKS[id]);
+  const f = REC.frames;
+  const final = () => {
+    if (f.length < 20) return null;
+    const from = f[0].t + 1, end = G.endAt ?? G.time, win = G.score.blue > G.score.red ? 'blue' : G.score.red > G.score.blue ? 'red' : null;
+    const k = REC.kills.filter(k => k.t >= from && k.t <= end + .02 && (!win || G.actors[k.k].team === win)).pop();
+    return k ? { kill: k, kills: [k], tag: 'FINAL KILL', src: REC } : null;
+  };
+  const best = () => {
+    if (!BEST || BEST.src.frames.length < 20) return null;
+    const n = BEST.kills.length, last = BEST.kills[n - 1];
+    const tag = n >= 2 ? (STREAK_NAMES[n] || n + '연속 킬') : last.w === WEAPONS.knife.n ? '칼 처치' : last.dist > 30 && last.head ? '원거리 헤드샷' : last.head ? '헤드샷' : '최고의 플레이';
+    return { kill: last, kills: BEST.kills, tag: 'BEST PLAY · ' + tag, src: BEST.src };
+  };
+  // a great play: 3+ kills in a streak, a double kill with two headshots, or a headshot from 40 m or more
+  const great = BEST && (BEST.kills.length >= 3 || (BEST.kills.length === 2 && BEST.kills.every(k => k.head)) || BEST.kills.some(k => k.head && k.dist >= 40));
+  return (great && best()) || final() || best();
 }
 function startReplay() {
   const h = pickHighlight(); if (!h) return false;
-  const f = REC.frames, k = h.kill;
-  RP.kill = k; RP.t0 = Math.max(f[0].t, k.t - 3.2); RP.t1 = Math.min(f[f.length - 1].t, k.t + 1.4); RP.t = RP.t0; RP.cam = null; RP.look = null; RP.shotI = 0; RP.on = true;
+  RP.src = h.src; RP.kills = h.kills;
+  const f = RP.src.frames, k = h.kill;
+  RP.kill = k; RP.t0 = Math.max(f[0].t, h.kills[0].t - 3); RP.t1 = Math.min(f[f.length - 1].t, k.t + 1.6); RP.t = RP.t0; RP.cam = null; RP.look = null; RP.shotI = 0; RP.on = true;
+  // bullet cam: the killer's last shot that ended near the victim; a grenade is followed through the air instead,
+  // and a knife kill stays on the killer's shoulder, close and slow
+  RP.phase = 'pre'; RP.shot = null; RP.bt = 0; RP.nade = null; RP.impact = null;
+  RP.kind = k.w === WEAPONS.knife.n ? 'knife' : k.w === NADE.n ? 'nade' : k.w === WEAPONS.shotgun.n ? 'shotgun' : k.w === WEAPONS.sniper.n ? 'sniper' : 'gun';
+  if (RP.kind === 'nade') {
+    const boom = RP.src.booms.filter(b => Math.abs(b.t - k.t) < .15).pop();
+    if (boom) {
+      // the grenade that was closest to the blast just before it went off, followed back to when it was thrown
+      let id = null, bd = 1e9;
+      for (let i = f.length - 1; i >= 0 && id === null; i--) {
+        if (f[i].t > boom.t) continue;
+        for (const q of f[i].n || []) { const d = Math.hypot(q[1] - boom.p[0], q[3] - boom.p[2]); if (d < bd) { bd = d; id = q[0]; } }
+        if (id !== null && bd > 3) id = null;
+        if (id === null && boom.t - f[i].t > .3) break;
+      }
+      if (id !== null) {
+        const first = f.find(fr => (fr.n || []).some(q => q[0] === id));
+        RP.nade = { id, boomT: boom.t, p: boom.p, mesh: null };
+        RP.t0 = Math.max(f[0].t, (first ? first.t : boom.t - 2.5) - .7); RP.t = RP.t0;
+      }
+    }
+  } else if (RP.kind !== 'knife') {
+    const vr = sampleRec(k.t)[k.v];
+    const cands = RP.src.shots.filter(sh => sh.who === k.k && sh.t <= k.t + .03 && sh.t >= k.t - .8);
+    let best = null, bd = 1e9;
+    for (const sh of cands) { const d = vr ? Math.hypot(sh.b[0] - vr[0], sh.b[2] - vr[2]) : 0; if (d < 1.5 && (d < bd - .01 || (best && Math.abs(d - bd) < .01 && sh.t > best.t))) { best = sh; bd = d; } }
+    if (!best && vr) { const kr = sampleRec(k.t)[k.k]; if (kr) best = { t: k.t - .02, a: [kr[0], kr[1] + 1.45, kr[2]], b: [vr[0], vr[1] + (k.head ? 1.62 : 1.15), vr[2]], col: 0xffc070 }; }
+    if (best) { const len = Math.hypot(best.b[0] - best.a[0], best.b[1] - best.a[1], best.b[2] - best.a[2]); RP.shot = best; RP.bdur = Math.max(1.1, Math.min(RP.kind === 'sniper' ? 3 : 2.2, .8 + len / (RP.kind === 'sniper' ? 16 : 22))); }
+  }
   G.state = 'replay';
   document.body.classList.remove('ending', 'end-win', 'end-lose', 'end-draw'); $('endBan').hidden = true;
   $('hud').hidden = true; $('touch').hidden = true; $('chat').hidden = true; $('centerMsg').hidden = true;
@@ -2813,54 +2908,201 @@ function startReplay() {
   RP.proxies = G.actors.map(a => ({ mesh: a.isMe ? RP.meMesh : a.mesh, walkT: 0, deathT: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, dead: false }));
   const kl = G.actors[k.k], vc = G.actors[k.v], cls = a => (a.team === 'blue' ? 'b' : 'r'), esc = t => String(t).replace(/[<>"&]/g, '');
   $('kcTag').textContent = h.tag;
-  $('kcWho').innerHTML = `<span class="${cls(kl)}">${esc(kl.isMe ? netNick() + ' (나)' : kl.name)}</span> → <span class="${cls(vc)}">${esc(vc.isMe ? netNick() + ' (나)' : vc.name)}</span> · ${esc(k.w)}${k.head ? ' · <span class="hs">헤드샷</span>' : ''}`;
+  const nm = a => esc(a.isMe ? netNick() + ' (나)' : a.name);
+  $('kcWho').innerHTML = h.kills.length > 1
+    ? `<span class="${cls(kl)}">${nm(kl)}</span> → ${h.kills.map(x => `<span class="${cls(G.actors[x.v])}">${nm(G.actors[x.v])}</span>${x.head ? '<span class="hs">✦</span>' : ''}`).join(', ')}`
+    : `<span class="${cls(kl)}">${nm(kl)}</span> → <span class="${cls(vc)}">${nm(vc)}</span> · ${esc(k.w)}${k.head ? ' · <span class="hs">헤드샷</span>' : ''}`;
   $('killcam').hidden = false;
+  if (RP.shot) {   // build the bullet now (hidden) so its shaders are ready when it fires
+    RP.bullet = bulletMesh(); RP.bullet.position.copy(camera.position); scene.add(RP.bullet);
+    try { renderer.compile(scene, camera); } catch (e) { /* compiled on first draw instead */ }
+    RP.bullet.visible = false;
+  }
   return true;
 }
 function endReplay() {
-  RP.on = false; if ($('killcam')) $('killcam').hidden = true;
+  if (vm && vm.models) for (const m in vm.models) vm.models[m].visible = m === weapon;
+  RP.on = false; if ($('killcam')) { $('killcam').hidden = true; $('killcam').classList.remove('bullet'); }
+  if (RP.bullet) { scene.remove(RP.bullet); RP.bullet = null; }
+  if (RP.nade && RP.nade.mesh) { scene.remove(RP.nade.mesh); RP.nade.mesh = null; }
   if (RP.meMesh) RP.meMesh.visible = false;
   if (vm && vm.root) vm.root.visible = true;
 }
 function skipReplay() { if (G.state !== 'replay') return; endReplay(); showResults(); }
 // playback speed: normal, then slow motion from just before the shot until a moment after it
-function replaySpeed(t) { const d = t - RP.kill.t; return d > -.45 && d < .7 ? .28 : 1; }
+function replaySpeed(t) {
+  for (const k of RP.kills || []) if (k !== RP.kill && Math.abs(t - k.t) < .35) return .35;   // earlier kills of a streak
+  const d = t - RP.kill.t; if (RP.nade) return RP.phase === 'post' ? (d < .9 ? .4 : 1) : (t > RP.nade.boomT - .6 ? .35 : 1); if (RP.kind === 'knife') return d > -.6 && d < .9 ? .2 : 1; if (RP.shot) return RP.phase === 'post' ? (d < .9 ? .45 : 1) : (t > RP.shot.t - .5 ? .5 : 1); return d > -.45 && d < .7 ? .28 : 1; }
 function sampleRec(t) {
-  const f = REC.frames; let i = 1;
+  const f = RP.src.frames; let i = 1;
   while (i < f.length - 1 && f[i].t < t) i++;
   const p = f[i - 1], q = f[i], k = Math.max(0, Math.min(1, (t - p.t) / Math.max(1e-4, q.t - p.t)));
-  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6]]; });
+  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6], k < .5 ? r[7] : s[7], k < .5 ? r[8] : s[8], (r[9] || 0) + ((s[9] || 0) - (r[9] || 0)) * k]; });
 }
+function bulletMesh() {
+  const g = new THREE.Group();
+  if (RP.kind === 'shotgun') {
+    // a cloud of pellets that spreads out on the way
+    const lead = new THREE.MeshBasicMaterial({ color: 0x8d8d86 });
+    g.userData.pellets = [];
+    for (let i = 0; i < 9; i++) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(.012, 8, 6), lead), a = i / 9 * Math.PI * 2, rr = i ? .6 + Math.random() * .4 : 0;
+      m.userData.dir = [Math.cos(a) * rr, Math.sin(a) * rr]; g.add(m); g.userData.pellets.push(m);
+    }
+    return g;
+  }
+  const brass = new THREE.MeshBasicMaterial({ color: 0xd9a441 }), lead = new THREE.MeshBasicMaterial({ color: 0x9a7a52 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, .05, 10), brass); body.rotation.x = Math.PI / 2; body.position.z = .02;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(.012, .035, 10), lead); tip.rotation.x = -Math.PI / 2; tip.position.z = -.022;
+  const trail = new THREE.Mesh(new THREE.CylinderGeometry(.002, .01, .9, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff1c0, transparent: true, opacity: .35, depthWrite: false }));
+  trail.rotation.x = Math.PI / 2; trail.position.z = .5;
+  g.add(body, tip, trail);
+  if (RP.kind === 'sniper') { g.scale.setScalar(1.5); trail.scale.set(1, 3, 1); trail.position.z = 1.4; }
+  return g;
+}
+function nadeAt(t) {
+  const f = RP.src.frames, id = RP.nade.id; let prev = null;
+  for (const fr of f) {
+    const q = (fr.n || []).find(z => z[0] === id); if (!q) continue;
+    if (fr.t >= t) { if (!prev) return fr.t - t < .05 ? [q[1], q[2], q[3]] : null; const k = (t - prev.t) / Math.max(1e-4, fr.t - prev.t); return [prev.q[1] + (q[1] - prev.q[1]) * k, prev.q[2] + (q[2] - prev.q[2]) * k, prev.q[3] + (q[3] - prev.q[3]) * k]; }
+    prev = { t: fr.t, q };
+  }
+  return prev ? [prev.q[1], prev.q[2], prev.q[3]] : null;
+}
+function bulletPos(u) { const a = RP.shot.a, b = RP.shot.b; return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u]; }
+// fast off the muzzle, then crawling for the last stretch before the hit
+const bulletEase = x => (x < .7 ? x / .7 * .82 : .82 + (1 - Math.pow(1 - (x - .7) / .3, 2)) * .18);
 function updateReplay(dt) {
+  if (RP.phase === 'pre' && RP.shot && RP.t + dt * replaySpeed(RP.t) >= RP.shot.t) {
+    RP.phase = 'bullet'; RP.bt = 0; RP.t = RP.shot.t;
+    if (!RP.bullet) { RP.bullet = bulletMesh(); scene.add(RP.bullet); }
+    RP.bullet.visible = true;
+    worldFlash(RP.shot.a, RP.kind === 'sniper' ? .8 : .5); sfx(RP.kind === 'sniper' ? 'snipe' : 'shot', .9); sfx('slide', .7);
+    $('killcam').classList.add('bullet');
+  }
+  if (RP.phase === 'bullet') {
+    RP.bt += dt;
+    const x = Math.min(1, RP.bt / RP.bdur), p = bulletPos(bulletEase(x));
+    RP.bullet.position.set(...p); RP.bullet.lookAt(...RP.shot.b); RP.bullet.rotateY(Math.PI);
+    if (RP.bullet.userData.pellets) { const spread = Math.hypot(RP.shot.b[0] - RP.shot.a[0], RP.shot.b[2] - RP.shot.a[2]) * bulletEase(x) * .035; for (const m of RP.bullet.userData.pellets) m.position.set(m.userData.dir[0] * spread, m.userData.dir[1] * spread, 0); }
+    else RP.bullet.children[0].rotation.y += dt * 30;
+    updateFx(dt * .05);
+    if (x >= 1) {
+      RP.phase = 'post'; scene.remove(RP.bullet); RP.bullet = null; $('killcam').classList.remove('bullet');
+      burst(RP.shot.b, [.6, 0, 0], 26, 3, .7); sfx(RP.kill.head ? 'hs' : 'hit', 1);
+      RP.impact = RP.shot.b.slice(); RP.cam = null; RP.look = null;
+    }
+    return;
+  }
   const step = dt * replaySpeed(RP.t), prevT = RP.t; RP.t += step;
+  if (RP.nade) {
+    const np = nadeAt(RP.t);
+    if (np && RP.t < RP.nade.boomT) {
+      if (!RP.nade.mesh) { RP.nade.mesh = new THREE.Mesh(new THREE.SphereGeometry(.07, 12, 10), std({ color: 0x4a5634, roughness: .6 })); scene.add(RP.nade.mesh); }
+      RP.nade.mesh.position.set(...np); RP.nade.mesh.rotation.x += step * 8;
+    }
+    if (prevT < RP.nade.boomT && RP.t >= RP.nade.boomT) {
+      if (RP.nade.mesh) { scene.remove(RP.nade.mesh); RP.nade.mesh = null; }
+      explosionFx(RP.nade.p); sfx('boom', 1); RP.phase = 'post'; RP.impact = RP.nade.p.slice(); RP.cam = null; RP.look = null;
+    }
+  }
   const st = sampleRec(RP.t);
   RP.proxies.forEach((p, i) => {
     const r = st[i]; if (!r || !p.mesh) return;
     const sp = Math.hypot(r[0] - p.x, r[2] - p.z) / Math.max(1e-4, step);
     const wasDead = p.dead; p.dead = !!r[6];
-    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5];
+    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5]; p.aiming = !!r[7]; p.sprintF = !!r[8]; p.leanOff = r[9] || 0;
     if (p.dead) { if (!wasDead) p.deathT = 0; if (p.deathT > 2.2) { p.mesh.visible = false; } else { p.mesh.position.set(p.x, p.y, p.z); p.mesh.rotation.set(0, p.yaw, 0); deathPose(p, step); } }
     else animateSoldier(p, step, Math.min(8, sp));
+    if (i === RP.kill.k && RP.phase === 'pre' && !(RP.nade && RP.nade.mesh)) p.mesh.visible = false;
   });
   // shots fired in this slice: tracer, flash and sound
-  for (const sh of REC.shots) {
-    if (sh.t <= prevT || sh.t > RP.t) continue;
-    tracer(sh.a, sh.b, sh.col); worldFlash(sh.a, .35);
+  for (const sh of RP.src.shots) {
+    if (sh.t <= prevT || sh.t > RP.t || sh === RP.shot) continue;
+    if (sh.who === RP.kill.k) RP.kick = 1;
+    worldFlash(sh.a, .35); if (sh.vis) tracer(sh.a, sh.b, sh.col);
     const c = camera.position, d = Math.hypot(sh.a[0] - c.x, sh.a[2] - c.z);
     sfx('shot', .9 / (1 + d / 9));
   }
-  if (Math.abs(RP.t - RP.kill.t) < step && RP.kill.head) sfx('hs', .6);
+  if (!RP.shot && Math.abs(RP.t - RP.kill.t) < step && RP.kill.head) sfx('hs', .6);
+  if (!RP.shot && !RP.nade && RP.phase === 'pre' && prevT < RP.kill.t && RP.t >= RP.kill.t) {
+    const v = RP.proxies[RP.kill.v]; RP.phase = 'post'; RP.impact = v ? [v.x, v.y + 1.2, v.z] : null; RP.cam = null; RP.look = null;
+    if (RP.impact) burst(RP.impact, [.6, 0, 0], 20, 2.5, .6);
+  }
+  RP.kick = Math.max(0, (RP.kick || 0) - step * 12);
   updateFx(step);
   if (RP.t >= RP.t1) skipReplay();
 }
 function renderReplay(dt) {
   const kp = RP.proxies[RP.kill.k], vp = RP.proxies[RP.kill.v];
   if (!kp) return;
+  if (RP.phase === 'bullet' && RP.bullet) {
+    const a = RP.shot.a, b = RP.shot.b, len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) || 1, d = [(b[0] - a[0]) / len, (b[1] - a[1]) / len, (b[2] - a[2]) / len];
+    const side = [-d[2], 0, d[0]], sl = Math.hypot(side[0], side[2]) || 1, x = Math.min(1, RP.bt / RP.bdur), roll = x * 2.2;
+    const off = [side[0] / sl * Math.cos(roll) * .07, .05 + Math.sin(roll) * .05, side[2] / sl * Math.cos(roll) * .07];
+    const p = RP.bullet.position, back = .32 - x * .08;
+    camera.position.set(p.x - d[0] * back + off[0], p.y - d[1] * back + off[1], p.z - d[2] * back + off[2]);
+    camera.up.set(0, 1, 0); camera.lookAt(p.x + d[0] * 3, p.y + d[1] * 3, p.z + d[2] * 3);
+    camera.fov = 50 + (1 - x) * 25; camera.updateProjectionMatrix();
+    shadowT += dt; if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
+    renderer.clear(); renderer.render(scene, camera);
+    return;
+  }
+  if (RP.nade && RP.phase === 'pre' && RP.nade.mesh) {
+    // chase the grenade: a little behind and above it along its flight
+    const p = RP.nade.mesh.position, q = nadeAt(RP.t - .08) || [p.x, p.y, p.z];
+    let dx = p.x - q[0], dz = p.z - q[2]; const l = Math.hypot(dx, dz);
+    if (l > .02) { dx /= l; dz /= l; RP.nadeDir = [dx, dz]; } else [dx, dz] = RP.nadeDir || [-Math.sin(kp.yaw), -Math.cos(kp.yaw)];
+    const want = [p.x - dx * 1.8, p.y + .8, p.z - dz * 1.8], c = [p.x, p.y, p.z];
+    const dv = [want[0] - c[0], want[1] - c[1], want[2] - c[2]], ln = Math.hypot(...dv), hit = rayMap(c, dv.map(v => v / ln), ln);
+    const kk = hit ? Math.max(.3, hit.t - .25) / ln : 1, pos = [c[0] + dv[0] * kk, c[1] + dv[1] * kk, c[2] + dv[2] * kk];
+    if (!RP.cam) RP.cam = pos.slice(); else for (let i = 0; i < 3; i++) RP.cam[i] += (pos[i] - RP.cam[i]) * Math.min(1, dt * 7);
+    camera.position.set(...RP.cam); camera.up.set(0, 1, 0); camera.lookAt(p.x + dx * 2, p.y - .2, p.z + dz * 2);
+    camera.fov = 64; camera.updateProjectionMatrix();
+    shadowT += dt; if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
+    renderer.clear(); renderer.render(scene, camera);
+    return;
+  }
+  if (RP.phase === 'pre' && !(RP.nade && RP.nade.mesh)) {
+    // through the killer's eyes, holding the weapon that made the kill
+    camera.position.set(kp.x, kp.y + (kp.crouch ? 1.15 : 1.6), kp.z);
+    camera.rotation.set(kp.pitch, kp.yaw, 0, 'YXZ');
+    camera.fov = 72; camera.updateProjectionMatrix();
+    shadowT += dt; if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
+    renderer.clear(); renderer.render(scene, camera);
+    const key = RP.kind === 'nade' ? null : (Object.keys(WEAPONS).find(w => WEAPONS[w].n === RP.kill.w) || 'rifle');
+    if (key && vm.models[key]) {
+      for (const m in vm.models) vm.models[m].visible = m === key;
+      const kd = RP.kill.t - RP.t, slash = RP.kind === 'knife' && kd < .25 && kd > -.05 ? 1 - Math.max(0, kd) / .25 : -1, sl = slash >= 0 ? Math.sin(slash * Math.PI) : 0;
+      const sp = Math.min(1, Math.hypot(kp.x - (RP.lastKx ?? kp.x), kp.z - (RP.lastKz ?? kp.z)) / Math.max(1e-3, dt) / 5); RP.lastKx = kp.x; RP.lastKz = kp.z;
+      RP.bob = (RP.bob || 0) + dt * sp * 9;
+      vm.root.visible = true; vm.flash.visible = RP.kick > .7;
+      vm.flash.position.set(0, .01, FLASH_Z[key] || -.6);
+      vm.root.position.set(.17 + Math.cos(RP.bob) * .01 * sp + (slash >= 0 ? .14 - slash * .34 : 0), -.19 - Math.abs(Math.sin(RP.bob)) * .012 * sp + sl * .03, -.4 + RP.kick * .05 - sl * .08);
+      vm.root.rotation.set(RP.kick * .08, slash >= 0 ? .9 - slash * 1.9 : 0, slash >= 0 ? -1.2 * sl : 0);
+      renderer.clearDepth(); renderer.render(vmScene, vmCamera);
+    }
+    return;
+  }
+  if (RP.phase === 'post' && RP.impact && vp) {
+    const from = RP.shot ? RP.shot.a : [kp.x, kp.y, kp.z];
+    const after = Math.max(0, RP.t - RP.kill.t), ang = Math.atan2(from[0] - RP.impact[0], from[2] - RP.impact[2]) + .5 + after * .45;
+    const c = [vp.x, vp.y + .9, vp.z], dist = 2.4 + after * .6;
+    const want = [c[0] + Math.sin(ang) * dist, c[1] + .7 + after * .25, c[2] + Math.cos(ang) * dist];
+    const dv = [want[0] - c[0], want[1] - c[1], want[2] - c[2]], ln = Math.hypot(...dv), hit = rayMap(c, dv.map(v => v / ln), ln);
+    const kk = hit ? Math.max(.3, hit.t - .3) / ln : 1, pos = [c[0] + dv[0] * kk, c[1] + dv[1] * kk, c[2] + dv[2] * kk];
+    if (!RP.cam) RP.cam = pos.slice(); else for (let i = 0; i < 3; i++) RP.cam[i] += (pos[i] - RP.cam[i]) * Math.min(1, dt * 6);
+    camera.position.set(...RP.cam); camera.up.set(0, 1, 0); camera.lookAt(c[0], vp.y + .5, c[2]);
+    camera.fov = 58; camera.updateProjectionMatrix();
+    shadowT += dt; if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
+    renderer.clear(); renderer.render(scene, camera);
+    return;
+  }
   const eye = [kp.x, kp.y + (kp.crouch ? 1.15 : 1.6), kp.z];
   // after the shot the camera swings slowly to the side so the victim's fall is in view
   const after = Math.max(0, RP.t - RP.kill.t), orbit = Math.min(.9, after * 1.1);
   const yaw = kp.yaw + orbit, fwd = [-Math.sin(yaw), 0, -Math.cos(yaw)], right = [Math.cos(yaw), 0, -Math.sin(yaw)];
-  const back = 2.6 + after * .8;
+  const back = (RP.kind === 'knife' ? 1.5 : 2.6) + after * .8;
   const want = [eye[0] - fwd[0] * back + right[0] * .7, eye[1] + .35 + after * .3, eye[2] - fwd[2] * back + right[2] * .7];
   const dv = [want[0] - eye[0], want[1] - eye[1], want[2] - eye[2]], len = Math.hypot(...dv);
   const hit = rayMap(eye, dv.map(v => v / len), len);
@@ -2938,7 +3180,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-07 #16)';
+const GAME_VERSION = '1.0 (10-07 #19)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3262,7 +3504,7 @@ function netOnMessage(m) {
       if (fr && fr.remote && v && !fr.dead && Number.isFinite(m.d)) damage(v, Math.min(400, Math.max(0, m.d)), fr, String(m.w || '').slice(0, 6), !!m.h, fr);
     } else if (m.t === 'shot') {
       const fr = G.actors[NET.fr];
-      if (fr && fr.remote && Array.isArray(m.e)) { tracer(muzzleOf(fr), m.e, 0xffc070); const dm = Math.hypot(fr.x - me.x, fr.z - me.z); sfx('shot', .9 / (1 + dm / 9)); fr.spotted = 1.2; }
+      if (fr && fr.remote && Array.isArray(m.e)) { tracer(muzzleOf(fr), m.e, 0xffc070); recShot(muzzleOf(fr), m.e, 0xffc070, NET.fr, true); const dm = Math.hypot(fr.x - me.x, fr.z - me.z); sfx('shot', .9 / (1 + dm / 9)); fr.spotted = 1.2; }
     } else if (m.t === 'nade') {
       const fr = G.actors[NET.fr], q = m.p || {};
       if (fr && fr.remote && !fr.dead && [q.x, q.y, q.z, q.vx, q.vy, q.vz].every(Number.isFinite)) {
@@ -3293,7 +3535,7 @@ function netOnMessage(m) {
     resetLoadout(); $('centerMsg').hidden = true;
   } else if (m.t === 'hurt') { if (me && !me.dead) hurtFlash({ x: m.x, z: m.z }); }
   else if (m.t === 'feed') { const k = G.actors[m.k], v = G.actors[m.v]; if (k && v) pushFeedLocal(k, v, m.w, m.h); }
-  else if (m.t === 'boom') { if (Array.isArray(m.p)) { explosionFx(m.p); sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
+  else if (m.t === 'boom') { if (Array.isArray(m.p)) { recBoom(m.p); explosionFx(m.p); sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
   else if (m.t === 'end') { if (Array.isArray(m.s)) { G.score.blue = m.s[0]; G.score.red = m.s[1]; } if (G.state !== 'ending' && G.state !== 'over') { G.state = 'play'; endMatch(); } }
   else if (m.t === 'bye') netLost();
 }
@@ -3347,7 +3589,7 @@ function netRemote(a, dt) {
     if (s) { a.x = s[1]; a.y = s[2]; a.z = s[3]; a.yaw = s[4]; }
     else { const k = Math.min(1, dt * 15); a.x += (m.x - a.x) * k; a.y += (m.y - a.y) * k; a.z += (m.z - a.z) * k; a.yaw += wrap(m.yaw - a.yaw) * k; }
     a.pitch = m.pitch; a.crouch = !!m.c; a.leanOff = Number.isFinite(m.l) ? m.l : 0;
-    a.vx = m.vx || 0; a.vz = m.vz || 0;
+    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp;
   }
   a.protect = Math.max(0, a.protect - dt);
   animateSoldier(a, dt, Math.hypot(a.vx || 0, a.vz || 0));
@@ -3359,7 +3601,7 @@ function netHostTick(dt) {
   if (NET.sendT > 0 || !(NET.conn && NET.conn.open)) return;
   NET.sendT = .05;
   netSend({ t: 'sn', ts: +netNow().toFixed(3), tm: R2(G.time), s: [G.score.blue, G.score.red],
-    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0)]),
+    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0]),
     n: G.nades.map(p => [R2(p.x), R2(p.y), R2(p.z)]), sh: NET.shots });
   NET.shots = [];
 }
@@ -3384,7 +3626,7 @@ function netApplySnap(m) {
     if (!nowDead) { if (wasDead) a.nb = []; netBuf(a, m.ts, r[0], r[1], r[2], r[3]); }
     if (nowDead && !wasDead) { a.dead = true; a.deathT = 0; dropPickup({ x: r[0], y: r[1], z: r[2] }); }
     else if (!nowDead && wasDead) { a.dead = false; a.x = r[0]; a.y = r[1]; a.z = r[2]; a.yaw = r[3]; a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.deathT = 0; }
-    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0);
+    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15];
   });
   for (const a of G.actors) a.prevKills = a.kills;
   // grenades in flight
@@ -3395,7 +3637,7 @@ function netApplySnap(m) {
   const now = performance.now();
   for (const s of Array.isArray(m.sh) ? m.sh : []) {
     const a = G.actors[s[0]]; if (!a || a.isMe || a.dead) continue;
-    if (Math.random() < .5) tracer(muzzleOf(a), [s[1], s[2], s[3]], 0xffc070);
+    { const vis = Math.random() < .5; if (vis) tracer(muzzleOf(a), [s[1], s[2], s[3]], 0xffc070); recShot(muzzleOf(a), [s[1], s[2], s[3]], 0xffc070, s[0], vis); }
     worldFlash(muzzleOf(a), .35);
     if (a.team !== me.team) a.spotted = Math.max(a.spotted || 0, 1.2);
     if (now - lastBotSnd > 45) { lastBotSnd = now; sfx('shot', .9 / (1 + Math.hypot(a.x - me.x, a.z - me.z) / 9)); }
@@ -3423,7 +3665,7 @@ function netClientStep(dt) {
   NET.sendT -= dt;
   if (NET.sendT <= 0) {
     NET.sendT = .05;
-    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0) });
+    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0 });
   }
 }
 // ping every 2 s, and whether the browsers talk directly or through PeerJS's relay server (shown top-left in matches)
