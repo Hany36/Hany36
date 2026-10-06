@@ -608,13 +608,15 @@ function yardRandom(seed) {
   return new Uint8Array(YARD.w * YARD.h);
 }
 const YARD_SEED = (() => { const m = /seed=(\d+)/.exec(location.hash); return m ? +m[1] : 1 + Math.floor(Math.random() * 99999); })();
+// fixed layouts the player can pick on the menu (each is the random generator with a set seed)
+const YARD_LAYOUTS = { a: 1207, b: 4821, c: 9034 };
 const YARD_SOURCE = (() => {
   const m = /yard=([^&]+)/.exec(location.hash);
   if (m && m[1] !== 'random') { const g = yardDecode(decodeURIComponent(m[1])); if (g) return { grid: g, mode: 'custom' }; }
   if (!m) {
     try {
       const st = JSON.parse(localStorage.getItem('supply-op.settings')) || {};
-      if (st.yardMode === 'custom') { const g = yardDecode(localStorage.getItem('supply-op.yard')); if (g) return { grid: g, mode: 'custom' }; }
+      if (YARD_LAYOUTS[st.yardMode]) return { grid: yardRandom(YARD_LAYOUTS[st.yardMode]), mode: st.yardMode };
     } catch (e) { /* storage unavailable */ }
   }
   return { grid: yardRandom(YARD_SEED), mode: 'random' };
@@ -1044,6 +1046,7 @@ const touch = matchMedia('(pointer: coarse)').matches;
 let settings = { map: MAP_ID, secondary: 'pistol', equip: 'nades', diff: 'normal', goal: 40, minutes: 5, sens: 1, adsSens: 1, scopeSens: 1, volume: .8, aimMode: 'hold', crouchMode: 'hold', leanMode: 'hold', primary: 'rifle', quality: touch ? 'medium' : 'high' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('supply-op.settings')) || {}); } catch (e) { /* defaults */ }
 settings.map = MAP_ID;
+if (!YARD_LAYOUTS[settings.yardMode]) settings.yardMode = 'random';
 if (!GOALS.includes(+settings.goal)) settings.goal = 40;
 if (!TIMES.includes(+settings.minutes)) settings.minutes = 5;
 // fixed for the match when it starts, so changing the menu mid-match never ends it early
@@ -1942,7 +1945,7 @@ function updatePlayer(dt) {
   if (keys.KeyW) fz += 1; if (keys.KeyS) fz -= 1; if (keys.KeyA) fx -= 1; if (keys.KeyD) fx += 1;
   fx += joy.x; fz -= joy.y;
   const len = Math.hypot(fx, fz); if (len > 1) { fx /= len; fz /= len; }
-  // C crouches (Ctrl walks slowly, Shift sprints); C while sprinting starts a slide
+  // C crouches, Shift sprints; C while sprinting starts a slide
   // the C press that started a slide never turns into crouching: after the slide you stand up again
   const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : ((keys.KeyC && !slideHoldC) || touchCrouch);
   if (slideT > 0) me.crouch = true;
@@ -1951,8 +1954,7 @@ function updatePlayer(dt) {
   else if (wantCrouch) me.crouch = true;
   // aiming wins over sprinting: right-click while sprinting drops the sprint and aims
   me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !aiming && slideT <= 0 && Math.abs(me.lean || 0) < .3;
-  const slow = keys.ControlLeft || keys.ControlRight;
-  const spd = (me.crouch ? 2.4 : aiming ? 3.2 : slow ? 3 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
+  const spd = (me.crouch ? 2.4 : aiming ? 3.2 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const tvx = (-sy * fz + cy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1), tvz = (-cy * fz - sy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1);
   const k = Math.min(1, dt * (me.ground ? 12 : 3));
@@ -2541,6 +2543,7 @@ function settingsHtml(inMatch) {
   return `
     <div class="set">
       ${inMatch ? '' : `<span class="lab">맵</span>${segHtml('map', Object.keys(MAPS).map(k => [k, MAPS[k].n]))}`}
+      ${inMatch || !DEPOT_MAP ? '' : `<span class="lab">창고 배치</span>${segHtml('yardMode', [['random', '매번 무작위'], ['a', '배치 1'], ['b', '배치 2'], ['c', '배치 3']])}`}
       ${inMatch ? '' : `<span class="lab">목표 킬</span>${segHtml('goal', GOALS.map(g => [String(g), String(g)]))}`}
       ${inMatch ? '' : `<span class="lab">제한 시간</span>${segHtml('minutes', TIMES.map(m => [String(m), m + '분']))}`}
       ${inMatch ? '' : `<span class="lab">봇 난이도</span>${segHtml('diff', Object.keys(DIFF).map(k => [k, DIFF[k].n]))}`}
@@ -2581,7 +2584,7 @@ function controlsHtml() {
       <dt>앉기 · 점프 · 수류탄</dt><dd>앉으면 더 정확해져요</dd>
     </dl></details>` : `
     <details><summary>조작법</summary><dl class="keys">
-      <dt>W A S D</dt><dd>이동 · Shift 달리기 · Ctrl 천천히 걷기</dd>
+      <dt>W A S D</dt><dd>이동 · Shift 달리기</dd>
       <dt>마우스</dt><dd>조준</dd>
       <dt>왼쪽 클릭</dt><dd>발사</dd>
       <dt>오른쪽 클릭</dt><dd>정조준 (소총 레드닷, 저격총 스코프)</dd>
@@ -2752,6 +2755,7 @@ $('overlay').addEventListener('click', e => {
     settings[s.dataset.set] = s.dataset.val; saveSettings();
     s.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === s)));
     if (s.dataset.set === 'map' && s.dataset.val !== MAP_ID) { s.closest('.card').style.opacity = .5; location.hash = `map=${s.dataset.val}`; location.reload(); return; }
+    if (s.dataset.set === 'yardMode') { s.closest('.card').style.opacity = .5; location.hash = 'map=depot'; location.reload(); return; }
     if (s.dataset.set === 'goal' || s.dataset.set === 'minutes') { settings[s.dataset.set] = +s.dataset.val; saveSettings(); }
     if (s.dataset.set === 'quality') applyQuality();
     if (s.dataset.set === 'aimMode') setAim(false);
