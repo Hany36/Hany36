@@ -2757,6 +2757,8 @@ window.addEventListener('keydown', e => {
   const all = [...LOADOUT.primary.map(x => ['primary', x[0]]), ...LOADOUT.secondary.map(x => ['secondary', x[0]]), ...LOADOUT.equip.map(x => ['equip', x[0]])];
   pickLoadout(...all[n - 1]);
 });
+// shown on the menu so it is easy to tell whether the browser has the newest upload
+const GAME_VERSION = '10-06 #9';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -2766,7 +2768,8 @@ function showMenu() {
     ${settingsHtml(false)}
     ${controlsHtml()}
     <button class="btn" type="button" data-act="start">전투 시작 (봇전)</button>
-    <button class="btn ghost" type="button" data-act="online">친구와 온라인으로 하기</button>`;
+    <button class="btn ghost" type="button" data-act="online">친구와 온라인으로 하기</button>
+    <p style="margin:10px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}</p>`;
   bindSliders();
   $('overlay').hidden = false;
 }
