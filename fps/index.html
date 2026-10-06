@@ -1926,12 +1926,12 @@ function updateLean(dt) {
   }
   me.leanOff = Math.abs(off) < .01 ? 0 : off;
 }
-let slideT = 0;
+let slideT = 0, slideHoldC = false;
 const SLIDE_TIME = .8, slideDir = [0, 0];
 function tryStartSlide() {
   const v = Math.hypot(me.vx, me.vz);
   if (!me || me.dead || !me.ground || slideT > 0 || !me.sprint || v < 5.5) return false;
-  slideT = SLIDE_TIME; slideDir[0] = me.vx / v; slideDir[1] = me.vz / v; me.crouch = true; me.sprint = false;
+  slideT = SLIDE_TIME; slideDir[0] = me.vx / v; slideDir[1] = me.vz / v; me.crouch = true; me.sprint = false; slideHoldC = true;
   sfx('slide', .8);
   return true;
 }
@@ -1943,7 +1943,8 @@ function updatePlayer(dt) {
   fx += joy.x; fz -= joy.y;
   const len = Math.hypot(fx, fz); if (len > 1) { fx /= len; fz /= len; }
   // C crouches (Ctrl walks slowly, Shift sprints); C while sprinting starts a slide
-  const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : (keys.KeyC || touchCrouch);
+  // the C press that started a slide never turns into crouching: after the slide you stand up again
+  const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : ((keys.KeyC && !slideHoldC) || touchCrouch);
   if (slideT > 0) me.crouch = true;
   else if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
@@ -2433,11 +2434,11 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyB') { pauseGame(); if (G.state === 'pause') showLoadout(true); return; }
   if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
-  if (e.code === 'KeyC') { tryStartSlide(); if (settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; }
+  if (e.code === 'KeyC') { if (!tryStartSlide() && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; }
   if (e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') e.preventDefault();   // keep Ctrl+S, Ctrl+D... from reaching the browser
   if (e.code === 'KeyG') startNadeAim();
 });
-window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyG') releaseNadeAim(); });
+window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyC') slideHoldC = false; if (e.code === 'KeyG') releaseNadeAim(); });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; triggerHeld = false; if (settings.aimMode === 'hold') setAim(false); });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => {
