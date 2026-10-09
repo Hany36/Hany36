@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>모델 미리보기</title>
+<style>
+  :root { --bg: #15171a; --panel: rgba(20,22,25,.92); --ink: #e9ece6; --muted: #9aa19a; --amber: #f2b13a; --line: #3a3f3a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .panel { position: fixed; left: 12px; top: 12px; width: min(380px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; box-sizing: border-box; }
+  h1 { margin: 0 0 8px; font-size: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+  button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: #262a26; color: var(--ink); cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--amber); color: #1b1b1b; border-color: var(--amber); font-weight: 700; }
+  pre { margin: 0; white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--muted); }
+  .err { color: #ff7b6b; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="panel">
+  <h1>모델 미리보기</h1>
+  <div class="row" id="models"></div>
+  <div class="row" id="anims"></div>
+  <pre id="info">불러오는 중…</pre>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="lib/GLTFLoader.js"></script>
+<script>
+// Loads each model in assets/models, frames it, and lists what is inside (meshes, materials, textures, animations, size).
+const MODELS = [['soldier', 'assets/models/soldier.glb'], ['gun', 'assets/models/gun.glb']];
+const $ = id => document.getElementById(id);
+const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true, preserveDrawingBuffer: true });
+renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2e33);
+scene.add(new THREE.HemisphereLight(0xe8eef5, 0x3a342c, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(2, 4, 3); scene.add(sun);
+const grid = new THREE.GridHelper(4, 16, 0x667066, 0x3c423c); scene.add(grid);
+const camera = new THREE.PerspectiveCamera(40, 1, .01, 100);
+let current = null, mixer = null, yaw = .6, pitch = .15, dist = 3, target = new THREE.Vector3(0, 1, 0);
+const clock = new THREE.Clock(), loaded = {};
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+let drag = null;
+$('c').addEventListener('pointerdown', e => { drag = [e.clientX, e.clientY]; });
+addEventListener('pointerup', () => { drag = null; });
+addEventListener('pointermove', e => { if (!drag) return; yaw -= (e.clientX - drag[0]) * .008; pitch = Math.max(-1.2, Math.min(1.2, pitch + (e.clientY - drag[1]) * .006)); drag = [e.clientX, e.clientY]; });
+$('c').addEventListener('wheel', e => { dist = Math.max(.2, Math.min(20, dist * (e.deltaY > 0 ? 1.1 : .9))); }, { passive: true });
+function describe(name, gltf, size) {
+  const meshes = [], mats = new Set(), texs = new Set(); let tris = 0, skinned = 0;
+  gltf.scene.traverse(o => {
+    if (!o.isMesh) return;
+    meshes.push(o.name || '(이름 없음)'); if (o.isSkinnedMesh) skinned++;
+    const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    for (const m of [].concat(o.material)) { mats.add(m.name || m.type); for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'specularMap', 'glossinessMap']) if (m[k]) texs.add(k + (m[k].image ? ` ${m[k].image.width}×${m[k].image.height}` : '')); }
+  });
+  return [`[${name}]`, `메시 ${meshes.length}개 (스킨 ${skinned}): ${meshes.join(', ')}`, `삼각형 약 ${Math.round(tris).toLocaleString()}개`,
+    `재질: ${[...mats].join(', ')}`, `텍스처: ${[...texs].join(', ') || '없음'}`,
+    `애니메이션: ${gltf.animations.map(a => `${a.name} (${a.duration.toFixed(2)}초)`).join(', ') || '없음'}`,
+    `크기(그대로 불러온 상태): 가로 ${size.x.toFixed(3)} · 높이 ${size.y.toFixed(3)} · 깊이 ${size.z.toFixed(3)}`].join('\n');
+}
+function show(name) {
+  for (const b of $('models').children) b.setAttribute('aria-pressed', String(b.dataset.m === name));
+  if (current) scene.remove(current.scene);
+  const g = loaded[name]; if (!g) return;
+  current = g; scene.add(g.scene);
+  const box = new THREE.Box3().setFromObject(g.scene), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  target.copy(c); dist = Math.max(size.x, size.y, size.z) * 1.8 || 2; grid.position.y = box.min.y;
+  mixer = g.animations.length ? new THREE.AnimationMixer(g.scene) : null;
+  $('anims').innerHTML = g.animations.map(a => `<button type="button" data-a="${a.name}">${a.name}</button>`).join('');
+  if (g.animations.length) play(g.animations.find(a => /idle/i.test(a.name))?.name || g.animations[0].name);
+  $('info').textContent = MODELS.map(([n]) => loaded[n] ? loaded[n].info : `[${n}] ${errors[n] || '불러오는 중…'}`).join('\n\n');
+}
+function play(an) {
+  if (!mixer) return; mixer.stopAllAction();
+  const clip = current.animations.find(a => a.name === an); if (clip) mixer.clipAction(clip).play();
+  for (const b of $('anims').children) b.setAttribute('aria-pressed', String(b.dataset.a === an));
+}
+$('models').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b) show(b.dataset.m); });
+$('anims').addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b) play(b.dataset.a); });
+const errors = {};
+$('models').innerHTML = MODELS.map(([n]) => `<button type="button" data-m="${n}">${n}</button>`).join('');
+const loader = new THREE.GLTFLoader();
+Promise.all(MODELS.map(([n, url]) => new Promise(res => loader.load(url, g => {
+  const size = new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3());
+  g.info = describe(n, g, size); loaded[n] = g; res();
+}, undefined, e => { errors[n] = '불러오기 실패: ' + (e && e.message || e); res(); })))).then(() => {
+  show(new URLSearchParams(location.search).get('m') || MODELS[0][0]);
+  window.previewReady = true;
+});
+(function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05, clock.getDelta()); if (mixer) mixer.update(dt);
+  camera.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * dist, target.y + Math.sin(pitch) * dist, target.z + Math.cos(yaw) * Math.cos(pitch) * dist);
+  camera.lookAt(target); renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>

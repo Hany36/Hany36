@@ -267,6 +267,8 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 <div class="overlay" id="overlay"><div class="card" id="card"><p>불러오는 중…</p></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="lib/GLTFLoader.js"></script>
+<script src="lib/SkeletonUtils.js"></script>
 <script>
 'use strict';
 // =============== maps ===============
@@ -1561,6 +1563,142 @@ function soldier(team) {
   g.userData = { hipL, hipR, torso, gun, arms };
   return g;
 }
+// =============== character model (assets/models/soldier.glb) ===============
+// Every number that places the model is here, so size, facing and the rifle can be adjusted in one spot.
+const CHARACTER = {
+  url: 'assets/models/soldier.glb',
+  height: 1.8,                 // the model is scaled to stand this tall (meters); hit boxes do not depend on it
+  rotationY: Math.PI,          // the model faces +z, the game's soldiers face -z
+  yOffset: 0,
+  bodyMaterial: 'VanguardBodyMat',
+  tint: { blue: 0x9fb8ff, red: 0xffb294 },                                  // multiplies the body texture per team
+  anims: { idle: /idle/i, walk: /walk/i, run: /run/i },                     // matched by name, never by index
+  animSpeed: { walk: 1.7, run: 4.6 },                                       // m/s the clips were made for (sets playback speed)
+  rifle: { pos: [.07, 1.37, -.3], scale: 1.05, aimRaise: .17, sprintDrop: .2, gripR: [0, -.1, .1], gripL: [0, -.05, -.27] },
+  crouchDrop: .42,             // how far the hips sink when crouching (meters)
+  band: { bone: 'LeftArm', radius: .065, length: .09, offset: .14 },        // team-colored armband
+};
+const CHAR = { gltf: null, scale: 1, clips: [], teamMat: {} };
+function loadCharacter() {
+  return new Promise(resolve => {
+    if (!THREE.GLTFLoader || !THREE.SkeletonUtils || location.protocol === 'file:') { resolve(false); return; }
+    const done = ok => { clearTimeout(timer); resolve(ok); }, timer = setTimeout(() => done(false), 20000);
+    new THREE.GLTFLoader().load(CHARACTER.url, gltf => {
+      const size = new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3());
+      CHAR.gltf = gltf; CHAR.clips = gltf.animations; CHAR.scale = size.y > 0 ? CHARACTER.height / size.y : 1;
+      gltf.scene.traverse(o => {
+        if (!o.isMesh || o.material.name !== CHARACTER.bodyMaterial) return;
+        for (const t of ['blue', 'red']) { const m = o.material.clone(); m.color.setHex(CHARACTER.tint[t]).convertSRGBToLinear(); CHAR.teamMat[t] = m; }
+      });
+      done(true);
+    }, undefined, () => done(false));
+  });
+}
+// the procedural soldier stays as the fallback when the model can't be loaded (offline, opened from a file)
+const makeSoldier = team => (CHAR.gltf ? rigSoldier(team) : soldier(team));
+function rigSoldier(team) {
+  const root = new THREE.Group(), model = THREE.SkeletonUtils.clone(CHAR.gltf.scene);
+  model.scale.setScalar(CHAR.scale); model.rotation.y = CHARACTER.rotationY; model.position.y = CHARACTER.yOffset;
+  const bones = {};
+  model.traverse(o => {
+    if (o.isBone) bones[o.name.replace(/^mixamorig:?/, '')] = o;
+    if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; if (o.material.name === CHARACTER.bodyMaterial && CHAR.teamMat[team]) o.material = CHAR.teamMat[team]; }
+  });
+  root.add(model);
+  const mixer = new THREE.AnimationMixer(model), act = {};
+  for (const k in CHARACTER.anims) {
+    const clip = CHAR.clips.find(c => CHARACTER.anims[k].test(c.name));
+    if (clip) { act[k] = mixer.clipAction(clip); act[k].play(); act[k].setEffectiveWeight(k === 'idle' ? 1 : 0); }
+  }
+  mixer.update(Math.random() * 2);   // so not everyone breathes in sync
+  const R = CHARACTER.rifle, gun = rifleModel(R.scale); gun.position.set(...R.pos); root.add(gun);
+  const bb = CHARACTER.band, arm = bones[bb.bone];
+  if (arm) {   // armband in team color, sized in meters whatever the bone's scale
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(bb.radius, bb.radius, bb.length, 12, 1, true), MAT.band[team]);
+    band.material.side = THREE.DoubleSide; band.scale.setScalar(1 / CHAR.scale); band.position.y = bb.offset / CHAR.scale; arm.add(band);
+  }
+  root.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  root.userData = { rig: { model, mixer, act, bones, hips0: bones.Hips ? bones.Hips.position.clone() : null }, gun };
+  return root;
+}
+// ---- small IK helpers (world space)
+const IKV = Array.from({ length: 10 }, () => new THREE.Vector3()), IKQ = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()];
+function rotateBoneWorld(bone, qWorld) {
+  bone.getWorldQuaternion(IKQ[1]); bone.parent.getWorldQuaternion(IKQ[2]);
+  bone.quaternion.copy(IKQ[2].invert().multiply(qWorld.clone().multiply(IKQ[1])));
+  bone.updateMatrixWorld(true);
+}
+// turn bone so that the point `child` (world) swings onto `target` (world)
+function aimBone(bone, child, target) {
+  const p = bone.getWorldPosition(IKV[0]), a = IKV[1].subVectors(child, p).normalize(), b = IKV[2].subVectors(target, p).normalize();
+  if (a.lengthSq() < 1e-8 || b.lengthSq() < 1e-8) return;
+  rotateBoneWorld(bone, IKQ[0].setFromUnitVectors(a, b));
+}
+// two-bone chain upper -> lower -> end reaching `target`, bending toward `pole`
+function ik2(upper, lower, end, target, pole) {
+  const A = upper.getWorldPosition(IKV[3]), B = lower.getWorldPosition(IKV[4]), C = end.getWorldPosition(IKV[5]);
+  const l1 = A.distanceTo(B), l2 = B.distanceTo(C), dir = IKV[6].subVectors(target, A);
+  const d = Math.min(l1 + l2 - 1e-4, Math.max(Math.abs(l1 - l2) + 1e-4, dir.length())); dir.normalize();
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const pd = IKV[7].subVectors(pole, A); pd.addScaledVector(dir, -pd.dot(dir)).normalize();
+  const E = IKV[8].copy(A).addScaledVector(dir, a).addScaledVector(pd, h);
+  aimBone(upper, B.clone(), E);
+  aimBone(lower, end.getWorldPosition(IKV[9]).clone(), target);
+}
+// rotate a bone about a world axis by an angle
+function twistBone(bone, axis, ang) { if (bone && ang) rotateBoneWorld(bone, IKQ[0].setFromAxisAngle(axis, ang)); }
+const RIGV = { fwd: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), t: new THREE.Vector3(), p: new THREE.Vector3(), g: new THREE.Vector3() };
+// animation for the loaded model: clips for idle / walk / run blended by speed, then crouch, lean, aim and the rifle grip on top
+function animateRig(a, dt, sp) {
+  const u = a.mesh.userData, rig = u.rig, B = rig.bones, R = CHARACTER.rifle, k = Math.min(1, dt * 10);
+  const sprint = !!a.sprintF && !a.crouch && sp > 4;
+  a.aimK = (a.aimK || 0) + ((a.aiming && !sprint ? 1 : 0) - (a.aimK || 0)) * k;
+  a.sprintK = (a.sprintK || 0) + ((sprint ? 1 : 0) - (a.sprintK || 0)) * k;
+  a.crouchK = (a.crouchK || 0) + ((a.crouch ? 1 : 0) - (a.crouchK || 0)) * k;
+  a.leanK = (a.leanK || 0) + ((a.leanOff || 0) / LEAN_DIST - (a.leanK || 0)) * k;
+  a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.mesh.position.set(a.x, a.y, a.z);
+  // clip weights from the ground speed, playback matched to it so feet don't slide
+  const S = CHARACTER.animSpeed, run = clamp((sp - 2.6) / 2), move = clamp(sp / 1.2);
+  const w = { idle: 1 - move, walk: move * (1 - run), run: move * run };
+  for (const n in rig.act) {
+    const ac = rig.act[n]; ac.setEffectiveWeight(w[n] || 0);
+    ac.timeScale = n === 'walk' ? Math.max(.5, sp / S.walk) * (a.crouch ? .8 : 1) : n === 'run' ? Math.max(.7, sp / S.run) : 1;
+  }
+  rig.mixer.update(dt);
+  rig.model.updateMatrixWorld(true);
+  const fwd = RIGV.fwd.set(-Math.sin(a.yaw), 0, -Math.cos(a.yaw)), right = RIGV.right.set(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
+  // crouch: hips sink, feet stay on the ground, knees bend forward
+  const drop = CHARACTER.crouchDrop * a.crouchK;
+  if (B.Hips && drop > .002) {
+    const feet = [B.LeftFoot, B.RightFoot].map(f => f && f.getWorldPosition(new THREE.Vector3()));
+    const hp = B.Hips.getWorldPosition(RIGV.p); hp.y -= drop; B.Hips.parent.worldToLocal(hp); B.Hips.position.copy(hp); B.Hips.updateMatrixWorld(true);
+    for (const [s, up, lo, ft] of [[-1, B.LeftUpLeg, B.LeftLeg, B.LeftFoot], [1, B.RightUpLeg, B.RightLeg, B.RightFoot]]) {
+      const f0 = feet[s < 0 ? 0 : 1]; if (!up || !lo || !ft || !f0) continue;
+      const target = f0.clone().addScaledVector(fwd, -.08 * a.crouchK); target.y = Math.max(a.y + .08, f0.y);
+      const pole = up.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, 1).addScaledVector(right, s * .2);
+      ik2(up, lo, ft, target, pole);
+    }
+  }
+  // upper body: lean to the side, look up and down, bend forward when sprinting or crouched
+  twistBone(B.Spine1, fwd, a.leanK * .32);
+  twistBone(B.Spine2, right, a.pitch * .45 - a.sprintK * .25 - a.crouchK * .1);
+  twistBone(B.Neck, right, a.pitch * .3);
+  // the rifle: raised to the eye when aiming, lowered when sprinting, tilted with the view; hands placed on it
+  const g = u.gun;
+  g.position.set(R.pos[0] + a.leanK * LEAN_DIST * .6, R.pos[1] - drop + a.aimK * R.aimRaise - a.sprintK * R.sprintDrop, R.pos[2] + a.aimK * .05);
+  g.rotation.set(a.pitch * (1 - a.sprintK) - a.sprintK * .6, a.sprintK * .5, -a.leanK * .3);
+  g.updateMatrixWorld(true);
+  if (B.RightArm && B.RightForeArm && B.RightHand) {
+    const t = g.localToWorld(RIGV.t.set(R.gripR[0], R.gripR[1], R.gripR[2]));
+    const pole = B.RightArm.getWorldPosition(new THREE.Vector3()).addScaledVector(right, .5).add(new THREE.Vector3(0, -.6, 0)).addScaledVector(fwd, -.2);
+    ik2(B.RightArm, B.RightForeArm, B.RightHand, t.clone(), pole);
+  }
+  if (B.LeftArm && B.LeftForeArm && B.LeftHand) {
+    const t = g.localToWorld(RIGV.t.set(R.gripL[0], R.gripL[1], R.gripL[2]));
+    const pole = B.LeftArm.getWorldPosition(new THREE.Vector3()).addScaledVector(right, -.5).add(new THREE.Vector3(0, -.7, 0));
+    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, t.clone(), pole);
+  }
+}
 function allyMarker() {
   const c = document.createElement('canvas'); c.width = c.height = 32;
   const x = c.getContext('2d'); x.fillStyle = '#5b95f0'; x.beginPath(); x.moveTo(16, 28); x.lineTo(4, 8); x.lineTo(28, 8); x.closePath(); x.fill();
@@ -1876,7 +2014,7 @@ function newActor(team, name, isMe) {
   const a = { team, name, isMe, hp: 100, dead: true, respawn: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0,
     crouch: false, ground: true, kills: 0, deaths: 0, stats: { shots: 0, hits: 0, hs: 0 }, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
   if (!isMe) {
-    a.mesh = soldier(team); scene.add(a.mesh);
+    a.mesh = makeSoldier(team); scene.add(a.mesh);
     if (team === (G.myTeam || 'blue')) a.mesh.add(allyMarker());
     a.ai = { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, strafe: 0, strafeT: 0, look: 0, lastSeen: null, think: Math.random() * .2, deathT: 0, stuckT: 0, stuckN: 0, unstickT: 0, blockT: 0 };
   }
@@ -2296,6 +2434,7 @@ function deathPose(a, dt) {
 // walk cycle with knee bend; crouch lowers the body (bots and remote players)
 // The model faces -z: a positive x rotation swings a thigh forward, a negative one folds the shin back at the knee.
 function animateSoldier(a, dt, sp) {
+  if (a.mesh.userData.rig) { animateRig(a, dt, sp); return; }
   const sprint = !!a.sprintF && !a.crouch && sp > 4, k = Math.min(1, dt * 10);
   a.walkT += dt * sp * (sprint ? 1.7 : 2.1);
   const u = a.mesh.userData, moving = sp > .2, amp = sprint ? .8 : a.crouch ? .3 : .55, swing = moving ? Math.sin(a.walkT) * amp : 0;
@@ -2904,7 +3043,7 @@ function startReplay() {
   $('hud').hidden = true; $('touch').hidden = true; $('chat').hidden = true; $('centerMsg').hidden = true;
   vm.root.visible = false; for (const tr of tracers) tr.line.visible = false;
   // everyone gets a stand-in with a body, including me (normally a camera without a mesh)
-  if (!RP.meMesh) { RP.meMesh = soldier(me.team); scene.add(RP.meMesh); }
+  if (!RP.meMesh) { RP.meMesh = makeSoldier(me.team); scene.add(RP.meMesh); }
   RP.proxies = G.actors.map(a => ({ mesh: a.isMe ? RP.meMesh : a.mesh, walkT: 0, deathT: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, dead: false }));
   const kl = G.actors[k.k], vc = G.actors[k.v], cls = a => (a.team === 'blue' ? 'b' : 'r'), esc = t => String(t).replace(/[<>"&]/g, '');
   $('kcTag').textContent = h.tag;
@@ -3190,7 +3329,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-07 #21)';
+const GAME_VERSION = '1.0 (10-09 #22)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3841,7 +3980,7 @@ function render(dt) {
 }
 
 // =============== boot ===============
-function boot() {
+async function boot() {
   if (!window.THREE) { $('card').innerHTML = `<h2>불러오지 못했어요</h2><p class="err">3D 엔진(three.js)을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.</p>`; return; }
   const probe = document.createElement('canvas');
   if (!(probe.getContext('webgl') || probe.getContext('experimental-webgl'))) {
@@ -3851,6 +3990,8 @@ function boot() {
     $('card').innerHTML = `<h2>불러오는 중 문제가 생겼어요</h2><p class="err">${String(e && e.message || e)}</p>`; console.error(e); return;
   }
   if (touch) document.body.classList.add('ptr');
+  $('card').innerHTML = '<h2>불러오는 중…</h2><p class="keep">캐릭터 모델을 불러오고 있어요.</p>';
+  await loadCharacter();   // falls back to the built-in soldier if the model can't be loaded
   setupMatch();
   showMenu();
   netAutoJoin();
