@@ -1568,7 +1568,7 @@ function soldier(team) {
 const CHARACTER = {
   url: 'assets/models/soldier.glb',
   height: 1.8,                 // the model is scaled to stand this tall (meters); hit boxes do not depend on it
-  rotationY: Math.PI,          // the model faces +z, the game's soldiers face -z
+  rotationY: 0,                // measured: with no turn the model's toes already point the game's way (-z)
   yOffset: 0,
   bodyMaterial: 'VanguardBodyMat',
   tint: { blue: 0x9fb8ff, red: 0xffb294 },                                  // multiplies the body texture per team
@@ -1576,6 +1576,7 @@ const CHARACTER = {
   animSpeed: { walk: 1.7, run: 4.6 },                                       // m/s the clips were made for (sets playback speed)
   rifle: { pos: [.07, 1.37, -.3], scale: 1.05, aimRaise: .17, sprintDrop: .2, gripR: [0, -.1, .1], gripL: [0, -.05, -.27] },
   crouchDrop: .42,             // how far the hips sink when crouching (meters)
+  hipTurn: 1.1,                // how far (radians) the legs may turn toward a sideways move while the chest keeps facing ahead
   band: { bone: 'LeftArm', radius: .065, length: .09, offset: .14 },        // team-colored armband
 };
 const CHAR = { gltf: null, scale: 1, clips: [], teamMat: {} };
@@ -1657,16 +1658,32 @@ function animateRig(a, dt, sp) {
   a.crouchK = (a.crouchK || 0) + ((a.crouch ? 1 : 0) - (a.crouchK || 0)) * k;
   a.leanK = (a.leanK || 0) + ((a.leanOff || 0) / LEAN_DIST - (a.leanK || 0)) * k;
   a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.mesh.position.set(a.x, a.y, a.z);
+  const fwd = RIGV.fwd.set(-Math.sin(a.yaw), 0, -Math.cos(a.yaw)), right = RIGV.right.set(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
+  // which way the body actually moves (bots strafe and back off while facing their target)
+  if (dt > 0) {
+    let vx = (a.x - (a._rx ?? a.x)) / dt, vz = (a.z - (a._rz ?? a.z)) / dt;
+    if (Math.hypot(vx, vz) > 15) vx = vz = 0;                       // a respawn or a teleport, not movement
+    a._vx = (a._vx || 0) + (vx - (a._vx || 0)) * k; a._vz = (a._vz || 0) + (vz - (a._vz || 0)) * k;
+  }
+  a._rx = a.x; a._rz = a.z;
+  const mv = Math.hypot(a._vx || 0, a._vz || 0), along = ((a._vx || 0) * fwd.x + (a._vz || 0) * fwd.z), side = ((a._vx || 0) * right.x + (a._vz || 0) * right.z);
+  sp = Math.max(mv, dt > 0 ? 0 : sp);
+  // moving backward plays the clips in reverse; moving sideways turns the legs toward the move
+  const back = mv > .3 && along < -.35 * mv, dir = mv > .3 ? Math.atan2(side, back ? -along : along) * (back ? -1 : 1) : 0;
+  // dir: how far (radians, right = positive) the legs turn so they step along the move (forward, or backward when reversing)
+  const hipWant = clamp(dir, -CHARACTER.hipTurn, CHARACTER.hipTurn) * (mv > .3 ? 1 : 0);
+  a.hipYaw = (a.hipYaw || 0) + (hipWant - (a.hipYaw || 0)) * k;
   // clip weights from the ground speed, playback matched to it so feet don't slide
-  const S = CHARACTER.animSpeed, run = clamp((sp - 2.6) / 2), move = clamp(sp / 1.2);
+  const S = CHARACTER.animSpeed, run = clamp((sp - 2.6) / 2), move = clamp(sp / 1.2), sign = back ? -1 : 1;
   const w = { idle: 1 - move, walk: move * (1 - run), run: move * run };
   for (const n in rig.act) {
     const ac = rig.act[n]; ac.setEffectiveWeight(w[n] || 0);
-    ac.timeScale = n === 'walk' ? Math.max(.5, sp / S.walk) * (a.crouch ? .8 : 1) : n === 'run' ? Math.max(.7, sp / S.run) : 1;
+    ac.timeScale = sign * (n === 'walk' ? Math.max(.5, sp / S.walk) * (a.crouch ? .8 : 1) : n === 'run' ? Math.max(.7, sp / S.run) : 1) * (n === 'idle' ? sign : 1);
   }
   rig.mixer.update(dt);
   rig.model.updateMatrixWorld(true);
-  const fwd = RIGV.fwd.set(-Math.sin(a.yaw), 0, -Math.cos(a.yaw)), right = RIGV.right.set(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
+  // legs toward the move, chest back toward where the soldier looks
+  if (B.Hips && Math.abs(a.hipYaw) > .01) { twistBone(B.Hips, RIGV.up, -a.hipYaw); twistBone(B.Spine, RIGV.up, a.hipYaw); }
   // crouch: hips sink, feet stay on the ground, knees bend forward
   const drop = CHARACTER.crouchDrop * a.crouchK;
   if (B.Hips && drop > .002) {
@@ -3329,7 +3346,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-09 #22)';
+const GAME_VERSION = '1.0 (10-09 #23)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
