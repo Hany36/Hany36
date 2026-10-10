@@ -6,10 +6,10 @@
 
 | 항목 | 내용 |
 |---|---|
-| 원본 | Adobe Mixamo(https://www.mixamo.com)의 캐릭터 **SWAT**과 애니메이션 **Rifle Idle**, **Rifle Run**, **Firing Rifle**. 저장소 주인이 Adobe 계정으로 직접 받아 2026-10-10에 올림 |
-| 원본 파일 | `assets/models/source/swat.fbx`(5,674,928 바이트, With Skin, T-pose), `rifle-idle.fbx`, `rifle-run.fbx`, `firing-rifle.fbx`(Without Skin). 모두 FBX 바이너리 7.7 |
+| 원본 | Adobe Mixamo(https://www.mixamo.com)의 캐릭터 **SWAT**과 애니메이션 **Rifle Idle**, **Walk With Rifle**, **Rifle Run**, **Firing Rifle**. 저장소 주인이 Adobe 계정으로 직접 받아 2026-10-10에 올림 |
+| 원본 파일 | `assets/models/source/swat.fbx`(5,674,928 바이트, With Skin, T-pose), `rifle-idle.fbx`, `walk-with-rifle.fbx`, `rifle-run.fbx`, `firing-rifle.fbx`(Without Skin). 모두 FBX 바이너리 7.7 |
 | 내용 | 스킨 메시 2개(머리, 몸), 약 1.9만 삼각형, 텍스처(색상 1024², 노멀·스페큘러 512²), Mixamo 뼈대 |
-| 변환 | three.js r128의 FBXLoader로 읽어 GLTFExporter로 `swat.glb` 하나로 합침. Rifle Run·Firing Rifle은 앞으로 나아가는 이동(루트 모션)을 지워 제자리 동작으로 바꿈. 재질 두 개를 함께 쓰는 머리 메시는 재질별로 나눔(합친 채로 내보내면 헬멧과 얼굴 재질이 뒤바뀜). 걷기 동작은 없어서 게임에서 달리기 동작을 느리게 재생해 대신함 |
+| 변환 | three.js r128의 FBXLoader로 읽어 GLTFExporter로 `swat.glb` 하나로 합침. Walk With Rifle·Rifle Run·Firing Rifle은 앞으로 나아가는 이동(루트 모션)을 지워 제자리 동작으로 바꿈. 재질 두 개를 함께 쓰는 머리 메시는 재질별로 나눔(합친 채로 내보내면 헬멧과 얼굴 재질이 뒤바뀜). |
 | 팀 색 | 블루팀은 원래 색. 레드팀은 게임이 시작할 때 제복 텍스처의 파란 천 부분만 사막 황갈색으로 바꿔 씀(`index.html`의 `CHARACTER.teamColor`) |
 | 이용 조건 | Adobe Mixamo 이용 조건(아래 1번과 같은 내용과 주의점). 원문: https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html |
 
