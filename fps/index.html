@@ -1051,7 +1051,8 @@ const WEAPONS = {
   knife:  { n: '칼', melee: true, rate: .5, dmg: 100, range: 2.5 },
 };
 const NADE = { n: '수류탄', dmg: 130, radius: 6.5, fuse: 2.2 };
-const WKEYS = Object.keys(WEAPONS);                     // weapon <-> small number, for recordings and the network
+const WKEYS = Object.keys(WEAPONS);
+const airOf = a => (a.isMe ? !me.ground : !!a.air);   // off the ground (a jump or a fall)                     // weapon <-> small number, for recordings and the network
 const heldWeapon = a => (a.isMe ? weapon : a.weapon || 'rifle');
 // loadout screen entries: [key, name, description]
 const LOADOUT = {
@@ -1577,11 +1578,18 @@ const CHARACTER = {
   uniformMaterial: 'Soldier_body1',
   teamColor: { blue: null, red: { hue: 33, sat: .42, light: 1.04 } },     // red team: desert tan
   anims: { idle: /^idle$/i, walk: /^walk$/i, run: /^run$/i,                 // matched by name, never by index
-    crouchIdle: /^crouch ?idle$/i, crouchWalk: /^crouch ?walk$/i, crouchBack: /^crouch ?back$/i, slide: /^slide$/i, death: /^death$/i },
-  oneShot: ['slide', 'death'],  // played once from the start when they begin, not looped
-  slide: { start: .05, speed: 1.6 },   // the Running Slide clip (1.5 s) squeezed into the game's 0.8 s slide, starting as the body drops
+    crouchIdle: /^crouch ?idle$/i, crouchWalk: /^crouch ?walk$/i, crouchBack: /^crouch ?back$/i, slide: /^slide$/i, death: /^death$/i,
+    sprint: /^sprint$/i, jump: /^jump$/i, fallOver: /^fall ?over$/i,
+    proneIdle: /^prone ?idle$/i, toProne: /^kneel ?to ?prone$/i, fromProne: /^prone ?to ?kneel$/i, proneMove: /^prone ?(forward|crawl)/i },
+  oneShot: ['slide', 'death', 'jump', 'fallOver', 'toProne', 'fromProne'],  // played once from the start when they begin, not looped
+  // lying down: the clips keep the hips at the actor's spot with the head 0.6 m ahead, so the model slides back by `shift`
+  // and the head (the camera of a prone player) stays on the actor's spot. gun: added to the chest-following rifle spot
+  prone: { shift: .6, gun: [-.02, .06, .05] },
+  slide: { start: .05, speed: 1.6 },
+  // falls start where the body begins to go down (the headshot clip stands still for its first 0.7 s)
+  death: { start: { death: .7, fallOver: .12 }, speed: 1.2 },   // the Running Slide clip (1.5 s) squeezed into the game's 0.8 s slide, starting as the body drops
   walkFallback: 'run',         // only used if a model has no walk clip: the run clip, played slower, stands in
-  animSpeed: { walk: 1.25, run: 3.07, crouchWalk: 1.17, crouchBack: 1.96 }, // m/s the clips were made for (sets playback speed)
+  animSpeed: { walk: 1.25, run: 3.07, sprint: 6.9, crouchWalk: 1.17, crouchBack: 1.96, proneMove: .6 }, // m/s the clips were made for (sets playback speed)
   walkToRun: [2.4, 4],         // ground speeds (m/s) where walking blends into running
   // third-person rifle (meters, actor space: x right, y up, -z forward). Measured on the SWAT model: chest front z -0.17,
   // back z +0.21, right shoulder (0.18, 1.42, 0.04), arm 0.56 long. The butt sits on the front of the right chest.
@@ -1703,7 +1711,10 @@ const RIGV = { fwd: new THREE.Vector3(), right: new THREE.Vector3(), up: new THR
 // animation for the loaded model: clips for idle / walk / run blended by speed, then crouch, lean, aim and the rifle grip on top
 function animateRig(a, dt, sp) {
   const u = a.mesh.userData, rig = u.rig, B = rig.bones, R = CHARACTER.rifle, k = Math.min(1, dt * 10);
-  if (a._dyingAnim) { a._dyingAnim = false; if (rig.act.death) rig.act.death.stop(); u.gun.visible = true; }   // alive again
+  if (a._dyingAnim) {   // alive again
+    a._dyingAnim = false; if (a._deathAct) a._deathAct.stop(); a._deathAct = null; u.gun.visible = true;
+    a._proneOn = false; a._proneTr = 0; a._airOn = false; a.airK = 0; for (const n of ['toProne', 'fromProne', 'jump']) if (rig.act[n]) rig.act[n].stop();
+  }
   const sprint = !!a.sprintF && !a.crouch && sp > 4;
   a.aimK = (a.aimK || 0) + ((a.aiming && !sprint ? 1 : 0) - (a.aimK || 0)) * k;
   a.sprintK = (a.sprintK || 0) + ((sprint ? 1 : 0) - (a.sprintK || 0)) * k;
@@ -1723,26 +1734,52 @@ function animateRig(a, dt, sp) {
   // moving backward plays the clips in reverse; moving sideways turns the legs toward the move
   const back = mv > .3 && along < -.35 * mv, dir = mv > .3 ? Math.atan2(side, back ? -along : along) * (back ? -1 : 1) : 0;
   // dir: how far (radians, right = positive) the legs turn so they step along the move (forward, or backward when reversing)
-  const hipWant = clamp(dir, -CHARACTER.hipTurn, CHARACTER.hipTurn) * (mv > .3 ? 1 : 0);
+  const act = rig.act;
+  // lying down: the getting-down / getting-up clip squeezed into PRONE_TIME, then the prone loop
+  const prone = !!(a.prone && act.proneIdle);
+  if (prone !== !!a._proneOn) {
+    a._proneOn = prone; a._proneTr = PRONE_TIME;
+    for (const n of ['toProne', 'fromProne']) if (act[n]) act[n].stop();
+    const tr = act[prone ? 'toProne' : 'fromProne'];
+    if (tr) { tr.reset(); tr.timeScale = tr.getClip().duration / PRONE_TIME; tr.play(); }
+  }
+  a._proneTr = Math.max(0, (a._proneTr || 0) - dt);
+  const trOn = a._proneTr > 0, prog = 1 - a._proneTr / PRONE_TIME;
+  // the transition fades in from standing when getting down, and out into standing at the end of getting up
+  const trW = !trOn ? 0 : prone ? clamp(prog / .15) : clamp(a._proneTr / .2), lying = prone && !trOn ? 1 : 0;
+  a.proneK = prone ? (trOn ? prog : 1) : (trOn ? 1 - prog : 0);   // 0 standing .. 1 lying: slides the model back, moves the rifle
+  const pk = a.proneK * a.proneK * (3 - 2 * a.proneK);
+  // off the ground: the jump clip (legs tucked), started at the take-off
+  const air = !!(a.air && act.jump && !prone);
+  if (air && !a._airOn) { const j = act.jump; j.reset(); j.timeScale = j.getClip().duration / .7; j.play(); }
+  a._airOn = air;
+  a.airK = (a.airK || 0) + ((air ? 1 : 0) - (a.airK || 0)) * Math.min(1, dt * 14);
+  const hipWant = clamp(dir, -CHARACTER.hipTurn, CHARACTER.hipTurn) * (mv > .3 ? 1 : 0) * (1 - pk);
   a.hipYaw = (a.hipYaw || 0) + (hipWant - (a.hipYaw || 0)) * k;
   // clip weights from the ground speed, playback matched to it so feet don't slide; crouch and slide clips blend in on top
-  const S = CHARACTER.animSpeed, act = rig.act, [w0, w1] = CHARACTER.walkToRun, run = clamp((sp - w0) / (w1 - w0)), move = clamp(sp / 1.2), sign = back ? -1 : 1;
+  const S = CHARACTER.animSpeed, [w0, w1] = CHARACTER.walkToRun, run = clamp((sp - w0) / (w1 - w0)), move = clamp(sp / 1.2), sign = back ? -1 : 1;
   const sliding = !!(a.sliding && act.slide);
   if (sliding && !a._slideOn) { const sl = act.slide; sl.reset(); sl.timeScale = CHARACTER.slide.speed; sl.play(); sl.time = CHARACTER.slide.start; }
   a._slideOn = sliding;
   a.slideK = (a.slideK || 0) + ((sliding ? 1 : 0) - (a.slideK || 0)) * Math.min(1, dt * 16);
   const crouchClips = !!(act.crouchIdle && act.crouchWalk), ck = crouchClips ? a.crouchK : 0, stand = (1 - ck) * (1 - a.slideK);
-  const cmove = clamp(sp / .6), cback = back && act.crouchBack;
-  const w = { idle: (1 - move) * stand, walk: move * (1 - run) * stand, run: move * run * stand,
-    crouchIdle: (1 - cmove) * ck * (1 - a.slideK), crouchWalk: cback ? 0 : cmove * ck * (1 - a.slideK), crouchBack: cback ? cmove * ck * (1 - a.slideK) : 0, slide: a.slideK, death: 0 };
+  const cmove = clamp(sp / .6), cback = back && act.crouchBack, sk = act.sprint ? a.sprintK : 0;
+  const base = (1 - trW) * (1 - lying) * (1 - a.airK), pm = act.proneMove ? clamp(mv / .4) : 0;   // base: standing and crouching clips
+  const w = { idle: (1 - move) * stand * base, walk: move * (1 - run) * stand * base, run: move * run * stand * base * (1 - sk), sprint: move * run * stand * base * sk,
+    crouchIdle: (1 - cmove) * ck * (1 - a.slideK) * base, crouchWalk: cback ? 0 : cmove * ck * (1 - a.slideK) * base, crouchBack: cback ? cmove * ck * (1 - a.slideK) * base : 0,
+    slide: a.slideK * base, jump: a.airK * (1 - trW) * (1 - lying), toProne: prone ? trW : 0, fromProne: prone ? 0 : trW,
+    proneIdle: lying * (1 - pm), proneMove: lying * pm };
   for (const n in act) {
     const ac = act[n]; ac.setEffectiveWeight(w[n] || 0);
     if (n === 'walk') ac.timeScale = sign * clamp(sp / S.walk, .5, 2.2) * (a.crouch ? .8 : 1);
     else if (n === 'run') ac.timeScale = sign * Math.max(.7, sp / S.run);
+    else if (n === 'sprint') ac.timeScale = Math.max(.7, sp / S.sprint);
+    else if (n === 'proneMove') ac.timeScale = (back ? -1 : 1) * clamp(mv / S.proneMove, .5, 2);
     else if (n === 'crouchWalk') ac.timeScale = (back && !cback ? -1 : 1) * clamp(sp / S.crouchWalk, .5, 2);
     else if (n === 'crouchBack') ac.timeScale = clamp(sp / S.crouchBack, .5, 2);
     else if (n === 'idle' || n === 'crouchIdle') ac.timeScale = 1;
   }
+  rig.model.position.z = CHARACTER.prone.shift * pk;   // lying: the head stays on the actor's spot, the body behind it
   rig.mixer.update(dt);
   rig.model.updateMatrixWorld(true);
   // legs toward the move, chest back toward where the soldier looks
@@ -1766,13 +1803,15 @@ function animateRig(a, dt, sp) {
     chestDy = c.y - a.y - CHAR.chestRef.y; chestDf = (c.x - a.x) * fwd.x + (c.z - a.z) * fwd.z - CHAR.chestRef.f;
   }
   // upper body: lean to the side, look up and down, bend forward when sprinting or crouched
-  twistBone(B.Spine2, RIGV.up, R.blade * (1 - a.sprintK * .7));   // shooter's stance: left shoulder toward the target
-  twistBone(B.Spine1, fwd, a.leanK * .32);
-  twistBone(B.Spine2, right, a.pitch * .45 - a.sprintK * .25 - a.crouchK * .1);
+  const up1 = 1 - pk;   // lying down the clip's own pose holds: no stance twist, lean or bending
+  twistBone(B.Spine2, RIGV.up, R.blade * (1 - a.sprintK * .7) * up1);   // shooter's stance: left shoulder toward the target
+  twistBone(B.Spine1, fwd, a.leanK * .32 * up1);
+  twistBone(B.Spine2, right, (a.pitch * .45 - a.sprintK * .25 - a.crouchK * .1) * up1);
   twistBone(B.Neck, right, a.pitch * .3);
   // the rifle: raised to the eye when aiming, lowered when sprinting, tilted with the view; hands placed on it
   const g = u.gun;
-  g.position.set(R.pos[0] + a.aimK * R.aimShift[0] + a.leanK * LEAN_DIST * .6, R.pos[1] + chestDy + a.aimK * R.aimRaise - a.sprintK * R.sprintDrop, R.pos[2] - chestDf + a.aimK * R.aimShift[1]);
+  const PG = CHARACTER.prone.gun;
+  g.position.set(R.pos[0] + a.aimK * R.aimShift[0] + a.leanK * LEAN_DIST * .6 + PG[0] * pk, R.pos[1] + chestDy + a.aimK * R.aimRaise * up1 - a.sprintK * R.sprintDrop + PG[1] * pk, R.pos[2] - chestDf + a.aimK * R.aimShift[1] + PG[2] * pk);
   g.rotation.set(a.pitch * (1 - a.sprintK) - a.sprintK * .6, a.sprintK * .5, -a.leanK * .3);
   g.updateMatrixWorld(true);
   if (B.RightArm && B.RightForeArm && B.RightHand) {
@@ -1797,11 +1836,13 @@ function allyMarker() {
 function buildViewModels() {
   const root = new THREE.Group();
   const models = {};
-  const sleeve = MAT.camo.blue;
+  const sleeve = MAT.camo.blue, boxArms = [];
+  // rh / lh: where each hand grips the weapon. The block hands only show if the character model (whose arms replace them) can't load
   const arms = (g, rh, lh) => {   // right hand on the grip, left hand forward
-    g.add(meshAt(new THREE.BoxGeometry(.06, .07, .09), MAT.glove, ...rh));
-    g.add(limb(rh, [rh[0] + .1, rh[1] - .3, rh[2] + .32], .04, .045, sleeve));
-    if (lh) { g.add(meshAt(new THREE.BoxGeometry(.065, .06, .1), MAT.glove, ...lh)); g.add(limb(lh, [lh[0] - .16, lh[1] - .32, lh[2] + .3], .04, .045, sleeve)); }
+    const parts = [meshAt(new THREE.BoxGeometry(.06, .07, .09), MAT.glove, ...rh), limb(rh, [rh[0] + .1, rh[1] - .3, rh[2] + .32], .04, .045, sleeve)];
+    if (lh) parts.push(meshAt(new THREE.BoxGeometry(.065, .06, .1), MAT.glove, ...lh), limb(lh, [lh[0] - .16, lh[1] - .32, lh[2] + .3], .04, .045, sleeve));
+    g.add(...parts); boxArms.push(...parts);
+    g.userData.grip = { rh, lh };
     return g;
   };
   // rifle with a red-dot sight; aiming moves the gun so the dot sits at the screen center
@@ -1831,6 +1872,8 @@ function buildViewModels() {
   knife.add(meshAt(new THREE.BoxGeometry(.028, .035, .12), MAT.polymer), meshAt(new THREE.BoxGeometry(.01, .04, .22), MAT.blade, 0, .004, -.17));
   knife.rotation.x = .4;
   models.knife = arms(knife, [0, 0, .02]);
+  // the knife handle runs front to back: the fist turns so the thumb points along the blade and the knuckles outward
+  models.knife.userData.grip.turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(0, 0, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1));
   // SMG: short receiver, stubby barrel, iron sights
   const smg = new THREE.Group();
   smg.add(meshAt(new THREE.BoxGeometry(.05, .075, .26), MAT.gun, 0, 0, 0), meshAt(new THREE.BoxGeometry(.055, .06, .12), MAT.polymer, 0, -.005, -.18));
@@ -1863,7 +1906,79 @@ function buildViewModels() {
   const flashTex = new THREE.CanvasTexture(flashC);
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   flash.scale.set(.2, .2, 1); flash.visible = false; root.add(flash);
-  return { root, models, flash, flashTex };
+  return { root, models, flash, flashTex, boxArms };
+}
+// ---- first-person arms: the character model's own sleeves and gloved hands (the rest of the body cut away),
+// with fingers from the Firing Rifle pose, reaching each weapon's grip spots
+const FPA = { clip: /^fire$/i, shoulder: { R: [.2, -.3, .06], L: [-.18, -.31, .02] }, pole: { R: [.45, -.6, .25], L: [-.5, -.6, .1] } };
+function initFpArms() {
+  const clip = CHAR.gltf && CHAR.clips.find(c => FPA.clip.test(c.name));
+  if (!clip) return;
+  const model = THREE.SkeletonUtils.clone(CHAR.gltf.scene);
+  model.scale.setScalar(CHAR.scale); model.rotation.y = CHARACTER.rotationY;
+  const bones = {}; model.traverse(o => { if (o.isBone) bones[o.name.replace(/^mixamorig:?/, '')] = o; });
+  const armBone = n => /(Left|Right)(Arm|ForeArm|Hand)/.test(n), meshes = [];
+  model.traverse(o => { if (o.isSkinnedMesh) meshes.push(o); });
+  for (const o of meshes) {
+    // keep only the triangles that move with the arms
+    const g = o.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, names = o.skeleton.bones.map(b => b.name), get = ['getX', 'getY', 'getZ', 'getW'];
+    const armW = i => { let a = 0, t = 0; for (let k = 0; k < 4; k++) { const w = sw[get[k]](i); t += w; if (armBone(names[si[get[k]](i)] || '')) a += w; } return t > 0 ? a / t : 0; };
+    const n = g.index ? g.index.count : g.attributes.position.count, idx = [];
+    for (let t = 0; t < n; t += 3) { const v = [0, 1, 2].map(j => (g.index ? g.index.getX(t + j) : t + j)); if (v.every(i => armW(i) > .5)) idx.push(...v); }
+    if (!idx.length) { o.visible = false; continue; }
+    const ng = g.clone(); ng.setIndex(idx); o.geometry = ng;
+    o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
+  }
+  // the pose: fingers curled around a rifle
+  const mixer = new THREE.AnimationMixer(model), ac = mixer.clipAction(clip); ac.play(); mixer.update(0);
+  model.updateMatrixWorld(true);
+  const W = n => bones[n].getWorldPosition(new THREE.Vector3()), Q = n => bones[n].getWorldQuaternion(new THREE.Quaternion());
+  const grasp = sd => ['Index2', 'Middle2', 'Ring2'].reduce((v, n) => v.add(W(sd + 'Hand' + n)), new THREE.Vector3()).multiplyScalar(1 / 3).add(W(sd + 'HandThumb2')).multiplyScalar(.5);
+  // the rifle in the clip: level, pointing from the right hand's grasp toward the left's
+  const ax = grasp('Left').sub(grasp('Right')); ax.y = 0; ax.normalize();
+  const frame = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), ax), frameInv = frame.clone().invert();
+  const side = {};
+  for (const [k, sd] of [['R', 'Right'], ['L', 'Left']]) {
+    const arm = bones[sd + 'Arm'], fore = bones[sd + 'ForeArm'], hand = bones[sd + 'Hand'], qh = Q(sd + 'Hand');
+    side[k] = { arm, fore, hand, rest: [arm, fore, hand].map(b => [b, b.quaternion.clone(), b.position.clone()]),
+      qrel: frameInv.clone().multiply(qh),                                              // hand turn relative to the rifle
+      grasp: grasp(sd).sub(W(sd + 'Hand')).applyQuaternion(qh.clone().invert()),         // wrist -> grasp, in the hand's frame
+      reach: .97 * (W(sd + 'Arm').distanceTo(W(sd + 'ForeArm')) + W(sd + 'ForeArm').distanceTo(W(sd + 'Hand'))) };
+  }
+  // the body sits so the shoulders are about where FPA.shoulder says (each shoulder is set exactly every frame)
+  const mid = W('RightArm').add(W('LeftArm')).multiplyScalar(.5);
+  model.position.set(-mid.x + (FPA.shoulder.R[0] + FPA.shoulder.L[0]) / 2, -mid.y + FPA.shoulder.R[1], -mid.z + FPA.shoulder.R[2]);
+  vmScene.add(model);
+  vm.arms = { model, side, team: null };
+  for (const m of vm.boxArms) m.visible = false;
+}
+const FPV = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Quaternion(), new THREE.Quaternion()];
+// every frame: hands onto the visible weapon's grips; shoulders move in toward a far grip so the arm always reaches
+function fpArmsPose(team) {
+  const A = vm.arms; if (!A) return;
+  const g = Object.values(vm.models).find(m => m.visible), grip = g && g.userData.grip;
+  A.model.visible = !!(vm.root.visible && grip);
+  if (!A.model.visible) return;
+  if (A.team !== team) {   // sleeves in the team's uniform color
+    A.team = team; const mat = CHAR.teamMat[team];
+    if (mat) A.model.traverse(o => { if (o.isMesh && (o.material.name === CHARACTER.uniformMaterial)) o.material = mat; });
+  }
+  vm.root.updateMatrixWorld(true);
+  for (const k in A.side) for (const [b, q, p] of A.side[k].rest) { b.quaternion.copy(q); b.position.copy(p); b.scale.setScalar(1); }
+  A.model.updateMatrixWorld(true);
+  const gq = g.getWorldQuaternion(FPV[3]); if (grip.turn) gq.multiply(grip.turn);
+  for (const k of ['R', 'L']) {
+    const H = A.side[k], spot = grip[k === 'R' ? 'rh' : 'lh'];
+    if (!spot) { H.arm.scale.setScalar(1e-4); H.arm.updateMatrixWorld(true); continue; }   // one-handed: the other arm folds away out of view
+    const qh = FPV[4].copy(gq).multiply(H.qrel);
+    const target = g.localToWorld(FPV[0].set(spot[0], spot[1], spot[2])).sub(FPV[1].copy(H.grasp).applyQuaternion(qh));
+    const s0 = FPA.shoulder[k], sh = FPV[2].set(s0[0], s0[1], s0[2]), d = target.clone().sub(sh), L = d.length();
+    if (L > H.reach) sh.copy(target).addScaledVector(d.multiplyScalar(1 / L), -H.reach);
+    H.arm.position.copy(H.arm.parent.worldToLocal(sh.clone())); H.arm.updateMatrixWorld(true);
+    const pl = FPA.pole[k];
+    ik2(H.arm, H.fore, H.hand, target.clone(), sh.clone().add(new THREE.Vector3(pl[0], pl[1], pl[2])));
+    H.hand.quaternion.copy(H.hand.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(qh)); H.hand.updateMatrixWorld(true);
+  }
 }
 
 // =============== effects ===============
@@ -1956,7 +2071,7 @@ function audioInit() {
 }
 // ---- footsteps: everyone walking on the ground makes steps you hear from where they are (3D panning);
 // crouching is nearly silent, sprinting loud. Sand sounds softer and duller than concrete.
-const STEP = { len: { crouch: .55, walk: .78, run: 1.0 }, vol: { crouch: .1, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
+const STEP = { len: { prone: .6, crouch: .55, walk: .78, run: 1.0 }, vol: { prone: .05, crouch: .1, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
 function setPanner(pn, x, y, z) { if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = y; pn.positionZ.value = z; } else pn.setPosition(x, y, z); }
 function footstep(a, vol, land) {
   if (!AC || settings.volume <= 0 || vol < .02) return;
@@ -1990,7 +2105,7 @@ function stepSounds(dt) {
     a._air = !ground;
     if (!ground) continue;
     const sp = d / dt, sprint = a.isMe ? me.sprint : a.sprintF || sp > 6.5;
-    const kind = a.crouch ? 'crouch' : sprint ? 'run' : (a.isMe ? aiming : a.aiming) && sp < 4 ? 'slow' : 'walk';
+    const kind = a.prone ? 'prone' : a.crouch ? 'crouch' : sprint ? 'run' : (a.isMe ? aiming : a.aiming) && sp < 4 ? 'slow' : 'walk';
     a._sd += d;
     const len = STEP.len[kind === 'slow' ? 'walk' : kind];
     if (a._sd >= len) { a._sd -= len; if (a._sd > len) a._sd = 0; footstep(a, STEP.vol[kind] * (a.isMe ? STEP.mine : 1) * (.85 + Math.random() * .3)); }
@@ -2157,8 +2272,11 @@ function newActor(team, name, isMe) {
   G.actors.push(a);
   return a;
 }
-const eyeH = a => (a.crouch ? 1.15 : 1.6);
+const eyeH = a => (a.prone ? .36 : a.crouch ? 1.15 : 1.6);
 const bodyTop = a => (a.crouch ? 1.0 : 1.45);
+// prone (Z): getting down or up takes PRONE_TIME (no moving or shooting meanwhile); the view can't tilt far up or down
+const PRONE_TIME = .8, PRONE_PITCH = [-.6, .4], PRONE_BODY = [.3, .62, .94, 1.26];   // body spheres: meters behind the head
+const bodyAimH = a => (a.prone ? .18 : .9);   // a spot on the body (height) to check sight lines and aim at
 function spawnActor(a) {
   const side = a.team === 'blue' ? -1 : 1;
   for (let tries = 0; tries < 40; tries++) {
@@ -2167,7 +2285,7 @@ function spawnActor(a) {
     if (G.actors.some(o => o !== a && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.2)) continue;
     a.x = x; a.z = z; break;
   }
-  a.y = 0; a.vx = a.vy = a.vz = 0; a.hp = 100; a.dead = false; a.protect = 2; a.crouch = false;
+  a.y = 0; a.vx = a.vy = a.vz = 0; a.hp = 100; a.dead = false; a.protect = 2; a.crouch = false; a.prone = false; a.air = false;
   a.yaw = side < 0 ? -Math.PI / 2 : Math.PI / 2; a.pitch = 0; a.lastHitBy = null;
   if (a.isMe) resetLoadout();
   else {
@@ -2212,7 +2330,7 @@ function resetLoadout() {
   if (!WEAPONS[settings.primary]) settings.primary = 'rifle';
   if (!WEAPONS[settings.secondary]) settings.secondary = 'pistol';
   loadoutPrimary = settings.primary; loadoutSecondary = settings.secondary; loadoutEquip = settings.equip; leanToggle = 0; touchLean = 0;
-  nades = loadoutEquip === 'armor' ? 0 : 2; reloadT = 0; fireCd = 0; prevWeapon = loadoutSecondary; crouchToggle = false; selectWeapon(loadoutPrimary, true);
+  nades = loadoutEquip === 'armor' ? 0 : 2; reloadT = 0; fireCd = 0; prevWeapon = loadoutSecondary; crouchToggle = false; proneT = 0; spaceBlock = false; selectWeapon(loadoutPrimary, true);
 }
 function selectWeapon(k, instant) {
   if (k === weapon && !instant) return;
@@ -2252,7 +2370,7 @@ function eyePos(a) { const [lx, lz] = leanVec(a); return [a.x + lx, a.y + eyeH(a
 function updateLean(dt) {
   let want = settings.leanMode === 'toggle' ? leanToggle : (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0);
   if (touchLean) want = touchLean;
-  if (me.dead || Math.hypot(me.vx, me.vz) > 4.5) want = 0;           // no leaning while running
+  if (me.dead || me.prone || proneT > 0 || Math.hypot(me.vx, me.vz) > 4.5) want = 0;           // no leaning while running or lying down
   me.lean = (me.lean || 0) + (want - (me.lean || 0)) * Math.min(1, dt * 10);
   // pull the lean back so the head never pokes through a wall
   const c = [me.x, me.y + eyeH(me), me.z];
@@ -2264,12 +2382,27 @@ function updateLean(dt) {
   }
   me.leanOff = Math.abs(off) < .01 ? 0 : off;
 }
+let proneT = 0, spaceBlock = false;   // proneT: time left getting down or up; spaceBlock: the Space press that stood you up doesn't jump
+function setProne(on, toCrouch) {
+  if (!me || me.dead || on === !!me.prone || proneT > 0) return false;
+  if (on) {
+    if (!me.ground || slideT > 0) return false;
+    me.prone = true; me.crouch = false; me.sprint = false; crouchToggle = false; leanToggle = 0;
+  } else {
+    // stand up where there's room; under something low, get up into a crouch (or stay down)
+    if (collidesAt(me.x, me.y, me.z, 1.25)) return false;
+    me.prone = false;
+    if (toCrouch || collidesAt(me.x, me.y, me.z, 1.75)) { me.crouch = true; if (settings.crouchMode === 'toggle') crouchToggle = true; }
+  }
+  proneT = PRONE_TIME;
+  return true;
+}
 let slideT = 0, slideHoldC = false;
 const SLIDE_TIME = .8, SLIDE_COOLDOWN = 1.2, slideDir = [0, 0];
 let slideCd = 0;   // time until the next slide is allowed (counted from when the slide ends)
 function tryStartSlide() {
   const v = Math.hypot(me.vx, me.vz);
-  if (!me || me.dead || !me.ground || slideT > 0 || slideCd > 0 || !me.sprint || v < 5.5) return false;
+  if (!me || me.dead || !me.ground || me.prone || proneT > 0 || slideT > 0 || slideCd > 0 || !me.sprint || v < 5.5) return false;
   slideT = SLIDE_TIME; slideCd = SLIDE_TIME + SLIDE_COOLDOWN; slideDir[0] = me.vx / v; slideDir[1] = me.vz / v; me.crouch = true; me.sprint = false; slideHoldC = true; me.slid = true;
   sfx('slide', .8);
   return true;
@@ -2278,6 +2411,10 @@ function updatePlayer(dt) {
   if (me.dead) return;
   me.protect = Math.max(0, me.protect - dt);
   slideCd = Math.max(0, slideCd - dt);
+  proneT = Math.max(0, proneT - dt);
+  if (!keys.Space && !jumpHeld) spaceBlock = false;
+  if (jumpHeld && me.prone && !spaceBlock) { spaceBlock = true; setProne(false); }   // the touch jump button stands you up
+  if (me.prone) me.pitch += (clamp(me.pitch, PRONE_PITCH[0], PRONE_PITCH[1]) - me.pitch) * Math.min(1, dt * 6);   // ease into the prone view range
   let fx = 0, fz = 0;
   if (keys.KeyW) fz += 1; if (keys.KeyS) fz -= 1; if (keys.KeyA) fx -= 1; if (keys.KeyD) fx += 1;
   fx += joy.x; fz -= joy.y;
@@ -2285,13 +2422,14 @@ function updatePlayer(dt) {
   // C crouches, Shift sprints; C while sprinting starts a slide
   // the C press that started a slide never turns into crouching: after the slide you stand up again
   const wantCrouch = settings.crouchMode === 'toggle' ? crouchToggle : ((keys.KeyC && !slideHoldC) || touchCrouch);
-  if (slideT > 0) me.crouch = true;
+  if (me.prone) me.crouch = false;
+  else if (slideT > 0) me.crouch = true;
   else if (me.slid && !wantCrouch && !collidesAt(me.x, me.y, me.z, 1.75)) { me.crouch = false; me.slid = false; }
   else if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
   // aiming and shooting win over sprinting: right- or left-click while sprinting drops the sprint
-  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !aiming && !triggerHeld && slideT <= 0 && Math.abs(me.lean || 0) < .3;
-  const spd = (me.crouch ? 2.4 : aiming ? 3.2 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
+  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !me.prone && proneT <= 0 && !aiming && !triggerHeld && slideT <= 0 && Math.abs(me.lean || 0) < .3;
+  const spd = proneT > 0 ? 0 : me.prone ? (aiming ? .8 : 1.1) : (me.crouch ? 2.4 : aiming ? 3.2 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const tvx = (-sy * fz + cy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1), tvz = (-cy * fz - sy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1);
   const k = Math.min(1, dt * (me.ground ? 12 : 3));
@@ -2305,8 +2443,8 @@ function updatePlayer(dt) {
     me.vx = slideDir[0] * v; me.vz = slideDir[1] * v;
   } else { me.vx += (tvx - me.vx) * k; me.vz += (tvz - me.vz) * k; }
   me.vy -= 18 * dt;
-  if ((keys.Space || jumpHeld) && me.ground) { me.vy = 6.3; me.ground = false; }
-  const h = me.crouch ? 1.25 : 1.75;
+  if ((keys.Space || jumpHeld) && me.ground && !me.prone && proneT <= 0 && !spaceBlock) { me.vy = 6.3; me.ground = false; }
+  const h = me.prone ? .6 : me.crouch ? 1.25 : 1.75;
   moveAxis(me, 'x', me.vx * dt, h); moveAxis(me, 'z', me.vz * dt, h);
   const hitY = moveAxis(me, 'y', me.vy * dt, h);
   if (me.y <= 0) { me.y = 0; me.vy = 0; me.ground = true; }
@@ -2318,7 +2456,7 @@ function updatePlayer(dt) {
   recoilP = Math.max(0, recoilP - dt * .25);
   const w = WEAPONS[weapon];
   if (reloadT > 0) { reloadT -= dt; if (reloadT <= 0) finishReload(); }
-  if (triggerHeld && switchT <= 0 && reloadT <= 0 && fireCd <= 0 && (w.auto || !firedThisPress)) { firedThisPress = true; shoot(); }
+  if (triggerHeld && switchT <= 0 && reloadT <= 0 && fireCd <= 0 && proneT <= 0 && (w.auto || !firedThisPress)) { firedThisPress = true; shoot(); }
 }
 function startReload() {
   const w = WEAPONS[weapon], a = ammo[weapon];
@@ -2343,7 +2481,7 @@ function currentSpread() {
   const moving = Math.hypot(me.vx, me.vz) / 5.4;
   let s = (aiming ? w.aimSpread : w.spread) + spreadBoost + moving * (aiming ? .01 : .03) * (w.moveK || 1);
   if (!me.ground) s += .05;
-  if (me.crouch) s *= .7;
+  if (me.prone) s *= .5; else if (me.crouch) s *= .7;
   return s;
 }
 function shoot() {
@@ -2391,6 +2529,13 @@ function traceActors(o, d, maxT, shooter) {
     const [lx, lz] = leanVec(a);
     const th = raySphere(o, d, [a.x + lx, a.y + eyeH(a) + .02, a.z + lz], HEAD_R);
     if (th !== null && th < maxT && (!best || th < best.t)) best = { t: th, a, head: true };
+    if (a.prone) {   // lying flat: the body stretches out behind the head along the facing
+      for (const b of PRONE_BODY) {
+        const tp = raySphere(o, d, [a.x + Math.sin(a.yaw) * b, a.y + .17, a.z + Math.cos(a.yaw) * b], .2);
+        if (tp !== null && tp > 0 && tp < maxT && (!best || tp < best.t - .05)) best = { t: tp, a, head: false };
+      }
+      continue;
+    }
     const tb = rayBox(o, d, { x0: a.x - .26, x1: a.x + .26, z0: a.z - .26, z1: a.z + .26, y0: a.y, y1: a.y + bodyTop(a) }, maxT);
     if (tb && tb.t > 0 && (!best || tb.t < best.t - .05)) best = { t: tb.t, a, head: false };
   }
@@ -2552,7 +2697,7 @@ function botSees(a, t) {
   const yawTo = Math.atan2(-dx, -dz);
   if (Math.abs(wrap(yawTo - a.yaw)) > 1.15 && dist > 6 && a.ai.target !== t) return false;
   const [lx, lz] = leanVec(t);
-  return lineClear(eye, [t.x + lx, t.y + eyeH(t) - .05, t.z + lz]) || lineClear(eye, [t.x, t.y + .9, t.z]);
+  return lineClear(eye, [t.x + lx, t.y + eyeH(t) - .05, t.z + lz]) || lineClear(eye, [t.x, t.y + bodyAimH(t), t.z]);
 }
 function pickGoal(a) {
   const side = a.team === 'blue' ? 1 : -1, r = Math.random();
@@ -2565,12 +2710,17 @@ function deathPose(a, dt) {
   const rig = a.mesh.userData.rig;
   if (rig && rig.act.death) {   // the model's own fall; the rifle is dropped (a pickup spawns on the ground)
     if (!a._dyingAnim) {
-      a._dyingAnim = true; a.deathT = 0;
-      for (const n in rig.act) rig.act[n].setEffectiveWeight(0);
-      const d = rig.act.death; d.reset(); d.setEffectiveWeight(1); d.timeScale = 1.15; d.play();
-      a.mesh.userData.gun.visible = false; a.mesh.rotation.set(0, a.yaw, 0);
+      a._dyingAnim = true; a.deathT = 0; a.mesh.userData.gun.visible = false;
+      // lying down already: stay down where you are. Otherwise a headshot drops on the spot, a body shot knocks you over backward
+      a._dieStill = !!(a.prone || a._proneOn);
+      if (!a._dieStill) {
+        for (const n in rig.act) rig.act[n].setEffectiveWeight(0);
+        const fo = !a.lastHead && rig.act.fallOver, d = fo || rig.act.death, D = CHARACTER.death; a._deathAct = d;
+        d.reset(); d.setEffectiveWeight(1); d.timeScale = D.speed; d.play(); d.time = D.start[fo ? 'fallOver' : 'death'];
+        rig.model.position.z = 0; a.mesh.rotation.set(0, a.yaw, 0);
+      }
     }
-    a.deathT += dt; rig.mixer.update(dt);
+    a.deathT += dt; if (!a._dieStill) rig.mixer.update(dt);
     a.mesh.visible = a.deathT < 3;
     return;
   }
@@ -2612,7 +2762,10 @@ function animateSoldier(a, dt, sp) {
   u.torso.rotation.x = a.pitch * .35 - a.sprintK * .22 + (a.crouch ? -.12 : 0);
   if (u.arms) u.arms.rotation.x += a.pitch * .5 * (1 - a.sprintK);
   a.mesh.visible = true; a.mesh.rotation.x = 0;
-  a.mesh.position.set(a.x, a.y, a.z); a.mesh.rotation.set(0, a.yaw, 0);
+  a.mesh.position.set(a.x, a.y, a.z); a.mesh.rotation.set(0, a.yaw, 0, 'YXZ');
+  // lying down: the whole figure tips forward onto the ground, feet behind the head
+  a.proneK = (a.proneK || 0) + ((a.prone ? 1 : 0) - (a.proneK || 0)) * Math.min(1, dt * 5);
+  if (a.proneK > .01) { a.mesh.rotation.x = -a.proneK * Math.PI / 2; a.mesh.position.x += Math.sin(a.yaw) * 1.5 * a.proneK; a.mesh.position.z += Math.cos(a.yaw) * 1.5 * a.proneK; a.mesh.position.y += .15 * a.proneK; }
 }
 function updateBot(a, dt) {
   const ai = a.ai, D = DIFF[settings.diff];
@@ -2704,9 +2857,10 @@ function updateBot(a, dt) {
 function botFire(a, t) {
   const D = DIFF[settings.diff];
   const o = [a.x, a.y + eyeH(a), a.z];
-  const aimH = Math.random() < (settings.diff === 'hard' ? .22 : .12) ? eyeH(t) + .02 : 1.0 + Math.random() * .3;
-  const lk = aimH > 1.4 ? 1 : .5, [lx, lz] = leanVec(t);
-  let d = [t.x + lx * lk + (t.vx || 0) * .05 - o[0], t.y + aimH - o[1], t.z + lz * lk + (t.vz || 0) * .05 - o[2]];
+  const head = Math.random() < (settings.diff === 'hard' ? .22 : .12);
+  const aimH = head ? eyeH(t) + .02 : t.prone ? .17 : 1.0 + Math.random() * .3;
+  const lk = aimH > 1.4 ? 1 : .5, [lx, lz] = leanVec(t), back = t.prone && !head ? .4 + Math.random() * .6 : 0;   // a prone body lies behind the head
+  let d = [t.x + lx * lk + Math.sin(t.yaw) * back + (t.vx || 0) * .05 - o[0], t.y + aimH - o[1], t.z + lz * lk + Math.cos(t.yaw) * back + (t.vz || 0) * .05 - o[2]];
   const l = Math.hypot(...d); d = d.map(v => v / l);
   const moving = Math.hypot(a.vx, a.vz) > .5 ? 1.5 : 1, tgtMove = t.isMe ? Math.min(1.6, 1 + Math.hypot(t.vx, t.vz) / 8) : 1;
   const s = D.spread * moving * tgtMove * (a.crouch ? .8 : 1);
@@ -2826,7 +2980,9 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyX') selectWeapon(prevWeapon);
   if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
-  if (e.code === 'KeyC') { if (!tryStartSlide() && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; }
+  if (e.code === 'KeyZ') setProne(!me.prone);
+  if (e.code === 'Space' && me.prone) { spaceBlock = true; setProne(false); }
+  if (e.code === 'KeyC') { if (me.prone) setProne(false, true); else if (!tryStartSlide() && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; }
   if (e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') e.preventDefault();   // keep Ctrl+S, Ctrl+D... from reaching the browser
   if (e.code === 'KeyG') startNadeAim();
 });
@@ -2846,7 +3002,9 @@ function look(dx, dy, k) {
   const w = WEAPONS[weapon];
   const zoomK = aiming ? (w.scope ? settings.scopeSens * .35 : settings.adsSens * .7) : 1;   // scope and iron-sight sensitivities are separate
   me.yaw -= dx * k * settings.sens * zoomK;
-  me.pitch = Math.max(-1.45, Math.min(1.45, me.pitch - dy * k * settings.sens * zoomK));
+  const p = me.pitch - dy * k * settings.sens * zoomK;
+  // lying down the view can't tilt past PRONE_PITCH (if it is still easing in, it may only come back toward the range)
+  me.pitch = me.prone ? clamp(p, Math.min(PRONE_PITCH[0], me.pitch), Math.max(PRONE_PITCH[1], me.pitch)) : clamp(p, -1.45, 1.45);
 }
 function aimPress(down) {
   if (!playing() || me.dead) return;
@@ -2986,7 +3144,7 @@ const KEY_GUIDE = [
   [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께)'], [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
   [['우클릭'], '정조준 · 스코프 (달리기 풀림)'], [['R'], '재장전'], [['1', '2', '3'], '주무기 · 보조무기 · 칼'], [['X'], '이전 무기'],
   [['휠'], '무기 바꾸기'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 (누르고 조준, 떼면 던짐)'],
-  [['Space'], '점프'], [['C'], '앉기 · 달리면서 누르면 슬라이딩'], [['Tab'], '점수판'], [['Enter'], '채팅'],
+  [['Space'], '점프'], [['C'], '앉기 · 달리면서 누르면 슬라이딩'], [['Z'], '엎드리기 (Z·Space: 일어서기, C: 앉기)'], [['Tab'], '점수판'], [['Enter'], '채팅'],
   [['F1'], '키 가이드 열기 · 닫기'], [['F11'], '전체 화면 (설정에서도 가능)'], [['Esc'], '일시정지'],
 ];
 function toggleKeyGuide(force) {
@@ -3101,7 +3259,7 @@ function recFrame() {
   // grenades in flight, each with an id so one can be followed (the friend's game only knows them by slot)
   const n = NET.role === 'client' ? NET.nadeMeshes.map((m, i) => m.visible ? [1000 + i, m.position.x, m.position.y, m.position.z] : null).filter(Boolean)
     : G.nades.map(p => [p.id || (p.id = ++NADE_SEQ), p.x, p.y, p.z]);
-  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0, (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, a.leanOff || 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a))]), n });
+  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0, (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, a.leanOff || 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0]), n });
   while (f.length && f[0].t < t - REC_KEEP) f.shift();
   while (REC.shots.length && REC.shots[0].t < t - REC_KEEP) REC.shots.shift();
   for (const id in STREAKS) { const st = STREAKS[id]; if (st.captureAt && t >= st.captureAt) captureStreak(st); }
@@ -3121,6 +3279,7 @@ function captureStreak(st) {
 function recBoom(p) { REC.booms.push({ t: G.time, p: p.slice() }); if (REC.booms.length > 20) REC.booms.shift(); }
 function recShot(a, b, col, who = -1, vis = true) { if (G.state === 'play' || G.state === 'ending' || G.state === 'pause') REC.shots.push({ t: G.time, a: a.slice(), b: b.slice(), col, who, vis }); }
 function recKill(killer, victim, w, head) {
+  if (victim) victim.lastHead = !!head;                  // picks the fall: a headshot drops straight, a body shot knocks over
   if (!killer || !victim || killer === victim) return;
   if (G.state !== 'play') return;                        // kills after the match was decided don't count
   const kill = { t: G.time, k: G.actors.indexOf(killer), v: G.actors.indexOf(victim), w, head: !!head, dist: Math.hypot(killer.x - victim.x, killer.z - victim.z) };
@@ -3192,7 +3351,7 @@ function startReplay() {
   vm.root.visible = false; for (const tr of tracers) tr.line.visible = false;
   // everyone gets a stand-in with a body, including me (normally a camera without a mesh)
   if (!RP.meMesh) { RP.meMesh = makeSoldier(me.team); scene.add(RP.meMesh); }
-  RP.proxies = G.actors.map(a => ({ mesh: a.isMe ? RP.meMesh : a.mesh, walkT: 0, deathT: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, dead: false }));
+  RP.proxies = G.actors.map(a => ({ mesh: a.isMe ? RP.meMesh : a.mesh, walkT: 0, deathT: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, dead: false, team: a.team }));
   const kl = G.actors[k.k], vc = G.actors[k.v], cls = a => (a.team === 'blue' ? 'b' : 'r'), esc = t => String(t).replace(/[<>"&]/g, '');
   $('kcTag').textContent = h.tag;
   const nm = a => esc(a.isMe ? netNick() + ' (나)' : a.name);
@@ -3225,7 +3384,7 @@ function sampleRec(t) {
   const f = RP.src.frames; let i = 1;
   while (i < f.length - 1 && f[i].t < t) i++;
   const p = f[i - 1], q = f[i], k = Math.max(0, Math.min(1, (t - p.t) / Math.max(1e-4, q.t - p.t)));
-  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6], k < .5 ? r[7] : s[7], k < .5 ? r[8] : s[8], (r[9] || 0) + ((s[9] || 0) - (r[9] || 0)) * k, k < .5 ? r[10] : s[10], k < .5 ? r[11] : s[11]]; });
+  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6], k < .5 ? r[7] : s[7], k < .5 ? r[8] : s[8], (r[9] || 0) + ((s[9] || 0) - (r[9] || 0)) * k, k < .5 ? r[10] : s[10], k < .5 ? r[11] : s[11], k < .5 ? r[12] : s[12], k < .5 ? r[13] : s[13]]; });
 }
 function bulletMesh() {
   const g = new THREE.Group();
@@ -3299,7 +3458,8 @@ function updateReplay(dt) {
     const r = st[i]; if (!r || !p.mesh) return;
     const sp = Math.hypot(r[0] - p.x, r[2] - p.z) / Math.max(1e-4, step);
     const wasDead = p.dead; p.dead = !!r[6];
-    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5]; p.aiming = !!r[7]; p.sprintF = !!r[8]; p.leanOff = r[9] || 0; p.sliding = !!r[10]; p.weapon = WKEYS[r[11]] || null;
+    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5]; p.aiming = !!r[7]; p.sprintF = !!r[8]; p.leanOff = r[9] || 0; p.sliding = !!r[10]; p.weapon = WKEYS[r[11]] || null; p.prone = !!r[12]; p.air = !!r[13];
+    if (p.dead && !wasDead) { const kl = REC.kills.find(x => x.v === i && Math.abs(x.t - RP.t) < .6); p.lastHead = kl ? kl.head : true; }
     if (p.dead) { if (!wasDead) p.deathT = 0; if (p.deathT > 2.2) { p.mesh.visible = false; } else { p.mesh.position.set(p.x, p.y, p.z); p.mesh.rotation.set(0, p.yaw, 0); deathPose(p, step); } }
     else animateSoldier(p, step, Math.min(8, sp));
     if (i === RP.kill.k && RP.phase === 'pre' && !(RP.nade && RP.nade.mesh)) p.mesh.visible = false;
@@ -3355,7 +3515,7 @@ function renderReplay(dt) {
   }
   if (RP.phase === 'pre' && !(RP.nade && RP.nade.mesh)) {
     // through the killer's eyes, holding the weapon that made the kill
-    camera.position.set(kp.x, kp.y + (kp.crouch ? 1.15 : 1.6), kp.z);
+    camera.position.set(kp.x, kp.y + eyeH(kp), kp.z);
     camera.rotation.set(kp.pitch, kp.yaw, 0, 'YXZ');
     // the weapon in hand at this moment of the recording (switches show up), else the one that made the kill
     const key = kp.weapon && WEAPONS[kp.weapon] ? kp.weapon : RP.kind === 'nade' ? null : (WKEYS.find(w => WEAPONS[w].n === RP.kill.w) || 'rifle');
@@ -3379,7 +3539,7 @@ function renderReplay(dt) {
       const ak = W.scope ? 0 : RP.adsK, hx = .17 + Math.cos(RP.bob) * .01 * sp, hy = -.19 - Math.abs(Math.sin(RP.bob)) * .012 * sp;
       vm.root.position.set(hx + (0 - hx) * ak + (slash >= 0 ? .14 - slash * .34 : 0), hy + ((W.adsY ?? hy) - hy) * ak + sl * .03, -.4 + ((W.adsZ ?? -.4) + .4) * ak + RP.kick * (ak ? .02 : .05) - sl * .08);
       vm.root.rotation.set(RP.kick * .08, slash >= 0 ? .9 - slash * 1.9 : 0, slash >= 0 ? -1.2 * sl : 0);
-      renderer.clearDepth(); renderer.render(vmScene, vmCamera);
+      fpArmsPose(kp.team); renderer.clearDepth(); renderer.render(vmScene, vmCamera);
     }
     return;
   }
@@ -3479,7 +3639,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-11 #28)';
+const GAME_VERSION = '1.0 (10-12 #29)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3492,7 +3652,8 @@ function showMenu() {
       ${grpHtml('game', '게임 설정', '조작 · 감도 · 소리 · 화면', settingsHtml())}
     </div>
     ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요. 브라우저 설정을 바꾸기 싫다면 Windows용 <a href="https://github.com/Hany36/Hany36/releases/tag/desktop" target="_blank" style="color:inherit;text-decoration:underline">PC 버전(Jammini_FPS_1.0.exe)</a>이나 <a href="Jammini_FPS_1.0.bat" download style="color:inherit;text-decoration:underline">게임 전용 창 실행 파일</a>을 받아 실행해 보세요(평소 브라우저 설정은 그대로 두고, 게임에서만 그래픽카드를 써요).</p>` : ''}
-    <p style="margin:10px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
+    <p style="margin:10px 0 0;text-align:center;font-size:13px"><a href="model-preview.html" target="_blank" style="color:inherit;opacity:.8">캐릭터 동작 미리보기 (엎드리기 · 쓰러지기 등)</a></p>
+    <p style="margin:6px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
   bindSliders();
   $('overlay').hidden = false;
 }
@@ -3888,7 +4049,7 @@ function netRemote(a, dt) {
     if (s) { a.x = s[1]; a.y = s[2]; a.z = s[3]; a.yaw = s[4]; }
     else { const k = Math.min(1, dt * 15); a.x += (m.x - a.x) * k; a.y += (m.y - a.y) * k; a.z += (m.z - a.z) * k; a.yaw += wrap(m.yaw - a.yaw) * k; }
     a.pitch = m.pitch; a.crouch = !!m.c; a.leanOff = Number.isFinite(m.l) ? m.l : 0;
-    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp; a.sliding = !!m.sl; if (WKEYS[m.wp]) a.weapon = WKEYS[m.wp];
+    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp; a.sliding = !!m.sl; if (WKEYS[m.wp]) a.weapon = WKEYS[m.wp]; a.prone = !!m.pr; a.air = !!m.ar;
   }
   a.protect = Math.max(0, a.protect - dt);
   animateSoldier(a, dt, Math.hypot(a.vx || 0, a.vz || 0));
@@ -3900,7 +4061,7 @@ function netHostTick(dt) {
   if (NET.sendT > 0 || !(NET.conn && NET.conn.open)) return;
   NET.sendT = .05;
   netSend({ t: 'sn', ts: +netNow().toFixed(3), tm: R2(G.time), s: [G.score.blue, G.score.red],
-    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a))]),
+    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0]),
     n: G.nades.map(p => [R2(p.x), R2(p.y), R2(p.z)]), sh: NET.shots });
   NET.shots = [];
 }
@@ -3925,7 +4086,7 @@ function netApplySnap(m) {
     if (!nowDead) { if (wasDead) a.nb = []; netBuf(a, m.ts, r[0], r[1], r[2], r[3]); }
     if (nowDead && !wasDead) { a.dead = true; a.deathT = 0; dropPickup({ x: r[0], y: r[1], z: r[2] }); }
     else if (!nowDead && wasDead) { a.dead = false; a.x = r[0]; a.y = r[1]; a.z = r[2]; a.yaw = r[3]; a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.deathT = 0; }
-    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]];
+    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]]; a.prone = !!r[18]; a.air = !!r[19];
   });
   for (const a of G.actors) a.prevKills = a.kills;
   // grenades in flight
@@ -3964,7 +4125,7 @@ function netClientStep(dt) {
   NET.sendT -= dt;
   if (NET.sendT <= 0) {
     NET.sendT = .05;
-    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0, sl: slideT > 0 ? 1 : 0, wp: WKEYS.indexOf(weapon) });
+    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0, sl: slideT > 0 ? 1 : 0, wp: WKEYS.indexOf(weapon), pr: me.prone ? 1 : 0, ar: me.ground ? 0 : 1 });
   }
 }
 // ping every 2 s, and whether the browsers talk directly or through PeerJS's relay server (shown top-left in matches)
@@ -4076,7 +4237,7 @@ function render(dt) {
     updateNadeArc();
     const dead = me.dead;
     const [lx, lz] = dead ? [0, 0] : leanVec(me);
-    camera.position.set(me.x + lx, me.y + (dead ? .4 : (me.eyeS = me.eyeS === undefined ? eyeH(me) : me.eyeS + (eyeH(me) - me.eyeS) * Math.min(1, dt * 9))) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
+    camera.position.set(me.x + lx, me.y + (dead ? .4 : (me.eyeS = me.eyeS === undefined ? eyeH(me) : me.eyeS + (eyeH(me) - me.eyeS) * Math.min(1, dt * (proneT > 0 ? 4.5 : 9)))) + (dead ? 0 : Math.sin(bob * 2) * .022), me.z + lz);
     vm.slideK = (vm.slideK || 0) + ((slideT > 0 ? 1 : 0) - (vm.slideK || 0)) * Math.min(1, dt * 10);
     camera.rotation.set(me.pitch + recoilP * .3, me.yaw, dead ? .6 : -(me.leanOff || 0) / LEAN_DIST * LEAN_ROLL + vm.slideK * .09);
     // match end: the camera pulls back and rises over the player's spot, looking down
@@ -4118,6 +4279,7 @@ function render(dt) {
     renderer.clear();
     renderer.render(scene, camera);
     renderer.clearDepth();
+    fpArmsPose(me.team);
     renderer.render(vmScene, vmCamera);
     if (me) hud(dt);
   } else {
@@ -4143,6 +4305,7 @@ async function boot() {
   if (touch) document.body.classList.add('ptr');
   $('card').innerHTML = '<h2>불러오는 중…</h2><p class="keep">캐릭터 모델을 불러오고 있어요.</p>';
   await loadCharacter();   // falls back to the built-in soldier if the model can't be loaded
+  try { initFpArms(); } catch (e) { console.error(e); vm.arms = null; for (const m of vm.boxArms) m.visible = true; }
   setupMatch();
   showMenu();
   netAutoJoin();

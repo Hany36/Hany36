@@ -21,7 +21,11 @@ function createWindow() {
     if (input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
     if (input.key === 'F5') { win.webContents.reloadIgnoringCache(); e.preventDefault(); }
   });
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  // the game's own pages (the motion viewer) open in another game window, with the graphics card too; other links in the browser
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(new URL('..', GAME_URL).href)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 800, backgroundColor: '#101210', icon: path.join(__dirname, 'icon.png') } };
+    shell.openExternal(url); return { action: 'deny' };
+  });
   win.webContents.on('did-fail-load', (e, code, desc, url, isMain) => {
     if (isMain && url.startsWith('http')) win.loadFile(path.join(__dirname, 'offline', 'index.html'));
   });

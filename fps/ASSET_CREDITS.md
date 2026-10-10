@@ -1,15 +1,16 @@
 # 외부 에셋 출처와 이용 조건 (Jammini_FPS_1.0)
 
-확인일: 2026-10-09. 저장소의 코드 라이선스를 모델에 자동으로 적용하지 않았어요. 모델마다 따로 찾은 근거만 적었어요.
+확인일: 2026-10-09 (SWAT 동작 추가분은 2026-10-12). 저장소의 코드 라이선스를 모델에 자동으로 적용하지 않았어요. 모델마다 따로 찾은 근거만 적었어요.
 
 ## 0. 캐릭터: `assets/models/swat.glb` (현재 게임에 적용함)
 
 | 항목 | 내용 |
 |---|---|
-| 원본 | Adobe Mixamo(https://www.mixamo.com)의 캐릭터 **SWAT**과 애니메이션 **Rifle Idle**, **Walk With Rifle**, **Rifle Run**, **Firing Rifle**, **Crouch Idle**, **Crouch Walking**, **Walk Crouching Backward**, **Running Slide**, **Death From Front Headshot**, **Crouch To Stand**(받았지만 2.9초로 길어 게임에는 쓰지 않음). 저장소 주인이 Adobe 계정으로 직접 받아 2026-10-10~11에 올림 |
-| 원본 파일 | `assets/models/source/swat.fbx`(5,674,928 바이트, With Skin, T-pose), `rifle-idle.fbx`, `walk-with-rifle.fbx`, `rifle-run.fbx`, `firing-rifle.fbx`, `crouch-idle.fbx`, `crouch-walking.fbx`, `crouch-walk-backward.fbx`, `running-slide.fbx`, `death-headshot.fbx`, `crouch-to-stand.fbx`(Without Skin). 모두 FBX 바이너리 7.7 |
+| 원본 | Adobe Mixamo(https://www.mixamo.com)의 캐릭터 **SWAT**과 애니메이션 **Rifle Idle**, **Walk With Rifle**, **Rifle Run**, **Firing Rifle**, **Crouch Idle**, **Crouch Walking**, **Walk Crouching Backward**, **Running Slide**, **Death From Front Headshot**, **Crouch To Stand**(받았지만 2.9초로 길어 게임에는 쓰지 않음), 그리고 2차로 **Sprint Forward**, **Rifle Jump**, **Jump Up**, **Jump Down**, **Prone Idle**, **Prone Firing Rifle**(2개), **Rifle Kneel To Prone**, **Rifle Prone To Kneel**(같은 동작 2개), **Rifle Stand To Kneel**, **Fall Over**. 저장소 주인이 Adobe 계정으로 직접 받아 2026-10-10~12에 올림 |
+| 원본 파일 | `assets/models/source/swat.fbx`(5,674,928 바이트, With Skin, T-pose), `rifle-idle.fbx`, `walk-with-rifle.fbx`, `rifle-run.fbx`, `firing-rifle.fbx`, `crouch-idle.fbx`, `crouch-walking.fbx`, `crouch-walk-backward.fbx`, `running-slide.fbx`, `death-headshot.fbx`, `crouch-to-stand.fbx`, `sprint-forward.fbx`, `rifle-jump.fbx`, `jump-up.fbx`, `jump-down.fbx`, `prone-idle.fbx`, `prone-firing-rifle.fbx`, `prone-firing-rifle-2.fbx`, `rifle-kneel-to-prone.fbx`, `rifle-prone-to-kneel.fbx`, `rifle-prone-to-kneel-2.fbx`, `rifle-stand-to-kneel.fbx`, `fall-over.fbx`(Without Skin, 올린 파일 이름의 띄어쓰기만 바꿈). 모두 FBX 바이너리 7.7 |
 | 내용 | 스킨 메시 2개(머리, 몸), 약 1.9만 삼각형, 텍스처(색상 1024², 노멀·스페큘러 512²), Mixamo 뼈대 |
-| 변환 | three.js r128의 FBXLoader로 읽어 GLTFExporter로 `swat.glb` 하나로 합침. 쓰러지기를 뺀 이동 동작은 나아가는 이동(루트 모션)을 지워 제자리 동작으로 바꿈(쓰러지기는 뒤로 넘어가는 움직임을 살림). 재질 두 개를 함께 쓰는 머리 메시는 재질별로 나눔(합친 채로 내보내면 헬멧과 얼굴 재질이 뒤바뀜). |
+| 변환 | three.js r128의 FBXLoader로 읽어 GLTFExporter로 `swat.glb` 하나로 합침. 이동 동작은 나아가는 이동(루트 모션)을 지워 제자리 동작으로 바꿈(쓰러지기·엎드리기·일어나기 같은 자세 바꾸기 동작은 원래 움직임을 살림). 점프(Rifle Jump)는 몸이 위로 뜨는 높이도 지워서 다리만 접히게 함(높이는 게임이 올림). 클립은 21개(Idle, Walk, Run, Sprint, Fire, CrouchIdle, CrouchWalk, CrouchBack, Slide, Jump, JumpUp, JumpDown, ProneIdle, ProneFire, ProneFireShort, KneelToProne, ProneToKneel, StandToKneel, CrouchToStand, Death, FallOver). 재질 두 개를 함께 쓰는 머리 메시는 재질별로 나눔(합친 채로 내보내면 헬멧과 얼굴 재질이 뒤바뀜). |
+| 1인칭 손 | 같은 모델을 한 번 더 불러와 팔에 붙은 삼각형만 남기고(몸통·머리·다리는 게임 안에서 잘라냄) Fire 동작의 손가락 모양으로 1인칭 무기를 쥐게 함. 모델 파일을 따로 만들거나 고치지 않음 |
 | 팀 색 | 블루팀은 원래 색. 레드팀은 게임이 시작할 때 제복 텍스처의 파란 천 부분만 사막 황갈색으로 바꿔 씀(`index.html`의 `CHARACTER.teamColor`) |
 | 이용 조건 | Adobe Mixamo 이용 조건(아래 1번과 같은 내용과 주의점). 원문: https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html |
 

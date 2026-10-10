@@ -3,97 +3,149 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>모델 미리보기</title>
+<title>모션 미리보기</title>
+<link rel="icon" type="image/png" href="icon.png">
 <style>
-  :root { --bg: #15171a; --panel: rgba(20,22,25,.92); --ink: #e9ece6; --muted: #9aa19a; --amber: #f2b13a; --line: #3a3f3a; }
+  :root { --bg: #15171a; --panel: rgba(20,22,25,.94); --ink: #e9ece6; --muted: #9aa19a; --amber: #f2b13a; --line: #3a3f3a; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
-  canvas { display: block; width: 100%; height: 100%; }
-  .panel { position: fixed; left: 12px; top: 12px; width: min(380px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; box-sizing: border-box; }
-  h1 { margin: 0 0 8px; font-size: 16px; }
-  .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .panel { position: fixed; left: 12px; top: 12px; bottom: 12px; width: min(340px, calc(100% - 24px)); overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; box-sizing: border-box; }
+  h1 { margin: 0 0 4px; font-size: 17px; }
+  .hint { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  h2 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); letter-spacing: .04em; font-weight: 700; }
+  .clips { display: flex; flex-direction: column; gap: 4px; }
+  .clip { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; text-align: left; width: 100%; }
+  .clip small { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .clip[aria-pressed="true"] small { color: #3a2a06; }
   button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: #262a26; color: var(--ink); cursor: pointer; }
   button[aria-pressed="true"] { background: var(--amber); color: #1b1b1b; border-color: var(--amber); font-weight: 700; }
-  pre { margin: 0; white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--muted); }
-  .err { color: #ff7b6b; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar { position: fixed; left: calc(min(340px, 100% - 24px) + 24px); right: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  .bar input[type=range] { flex: 1; min-width: 140px; accent-color: var(--amber); }
+  .bar .t { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 92px; text-align: right; }
+  .now { position: fixed; left: calc(min(340px, 100% - 24px) + 24px); top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .now b { font-size: 16px; } .now span { display: block; font-size: 12px; color: var(--muted); }
+  details { margin-top: 12px; } summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { margin: 6px 0 0; white-space: pre-wrap; font: 11.5px/1.45 ui-monospace, Consolas, monospace; color: var(--muted); }
+  @media (max-width: 700px) { .panel { bottom: auto; max-height: 45vh; } .bar, .now { left: 12px; } .now { top: auto; bottom: 86px; } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div class="panel">
-  <h1>모델 미리보기</h1>
+  <h1>모션 미리보기</h1>
+  <p class="hint">동작을 누르면 재생돼요. 마우스로 끌어서 돌리고 휠로 확대해요. ← → 키로 이전·다음 동작.</p>
   <div class="row" id="models"></div>
-  <div class="row" id="anims"></div>
-  <pre id="info">불러오는 중…</pre>
+  <div id="list"></div>
+  <details><summary>모델 정보</summary><pre id="info">불러오는 중…</pre></details>
+</div>
+<div class="now"><b id="nowName">—</b><span id="nowUse"></span></div>
+<div class="bar">
+  <button type="button" id="playBtn">일시정지</button>
+  <div class="row" id="speeds"></div>
+  <button type="button" id="loopBtn" aria-pressed="true">반복</button>
+  <input type="range" id="time" min="0" max="1" step="0.001" value="0" aria-label="재생 위치">
+  <span class="t" id="tLabel">0.00 / 0.00초</span>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="lib/GLTFLoader.js"></script>
 <script>
-// Loads each model in assets/models, frames it, and lists what is inside (meshes, materials, textures, animations, size).
-const MODELS = [['swat', 'assets/models/swat.glb'], ['soldier', 'assets/models/soldier.glb'], ['gun', 'assets/models/gun.glb']];
+// Plays every animation in the character file (assets/models/swat.glb) one at a time, outside the game.
+const MODELS = [['SWAT (게임 캐릭터)', 'assets/models/swat.glb'], ['예전 병사', 'assets/models/soldier.glb'], ['총 후보 (미적용)', 'assets/models/gun.glb']];
+// clip name -> [group, Korean name, where the game uses it]
+const LABELS = {
+  Idle: ['서기 · 이동', '서 있기', '멈춰 있을 때'], Walk: ['서기 · 이동', '걷기', '느리게 움직일 때 (정조준 등)'],
+  Run: ['서기 · 이동', '달리기', '보통 이동'], Sprint: ['서기 · 이동', '전력 질주', 'Shift 달리기'], Fire: ['서기 · 이동', '사격', '쓰지 않음'],
+  CrouchIdle: ['앉기', '앉아 있기', 'C'], CrouchWalk: ['앉기', '앉아 걷기', 'C + 이동'], CrouchBack: ['앉기', '앉아 뒤로 걷기', 'C + 뒤로'],
+  StandToKneel: ['앉기', '서 있다 무릎 꿇기', '미리보기만'], CrouchToStand: ['앉기', '앉았다 일어서기', '미리보기만 (2.9초로 김)'],
+  Slide: ['앉기', '슬라이딩', '달리다가 C'],
+  ProneIdle: ['엎드리기', '엎드려 있기', 'Z'], KneelToProne: ['엎드리기', '앉았다 엎드리기', 'Z (엎드릴 때, 0.8초로 빠르게)'], ProneToKneel: ['엎드리기', '엎드렸다 일어나기', 'Z · Space · C (일어날 때, 0.8초로 빠르게)'],
+  ProneFire: ['엎드리기', '엎드려 쏘기', '미리보기만'], ProneFireShort: ['엎드리기', '엎드려 쏘기 (짧은 판)', '미리보기만'],
+  Jump: ['점프', '점프 (소총)', 'Space: 공중에 있는 동안 (몸 높이는 게임이 올림)'], JumpUp: ['점프', '뛰어오르기', '미리보기만'], JumpDown: ['점프', '내려오기', '미리보기만'],
+  Death: ['쓰러지기', '헤드샷 쓰러지기', '머리에 맞고 죽을 때 (서 있는 앞 0.7초는 건너뜀)'], FallOver: ['쓰러지기', '쓰러지기', '몸에 맞고 죽을 때'],
+};
+const GROUPS = ['서기 · 이동', '앉기', '엎드리기', '점프', '쓰러지기', '기타'];
 const $ = id => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true, preserveDrawingBuffer: true });
 renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2e33);
 scene.add(new THREE.HemisphereLight(0xe8eef5, 0x3a342c, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(2, 4, 3); scene.add(sun);
-const grid = new THREE.GridHelper(4, 16, 0x667066, 0x3c423c); scene.add(grid);
+const grid = new THREE.GridHelper(6, 24, 0x667066, 0x3c423c); scene.add(grid);
 const camera = new THREE.PerspectiveCamera(40, 1, .01, 500);
-let current = null, mixer = null, yaw = .6, pitch = .15, dist = 3, target = new THREE.Vector3(0, 1, 0);
-const clock = new THREE.Clock(), loaded = {};
+let current = null, mixer = null, action = null, yaw = .7, pitch = .18, dist = 3.4, target = new THREE.Vector3(0, .9, 0), paused = false, speed = 1, scrubbing = false;
+const clock = new THREE.Clock(), loaded = {}, errors = {};
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 let drag = null;
 $('c').addEventListener('pointerdown', e => { drag = [e.clientX, e.clientY]; });
 addEventListener('pointerup', () => { drag = null; });
 addEventListener('pointermove', e => { if (!drag) return; yaw -= (e.clientX - drag[0]) * .008; pitch = Math.max(-1.2, Math.min(1.2, pitch + (e.clientY - drag[1]) * .006)); drag = [e.clientX, e.clientY]; });
-$('c').addEventListener('wheel', e => { dist = Math.max(.2, Math.min(20, dist * (e.deltaY > 0 ? 1.1 : .9))); }, { passive: true });
+$('c').addEventListener('wheel', e => { dist = Math.max(.4, Math.min(20, dist * (e.deltaY > 0 ? 1.1 : .9))); }, { passive: true });
 function describe(name, gltf, size) {
-  const meshes = [], mats = new Set(), texs = new Set(); let tris = 0, skinned = 0;
-  gltf.scene.traverse(o => {
-    if (!o.isMesh) return;
-    meshes.push(o.name || '(이름 없음)'); if (o.isSkinnedMesh) skinned++;
-    const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
-    for (const m of [].concat(o.material)) { mats.add(m.name || m.type); for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'specularMap', 'glossinessMap']) if (m[k]) texs.add(k + (m[k].image ? ` ${m[k].image.width}×${m[k].image.height}` : '')); }
-  });
-  return [`[${name}]`, `메시 ${meshes.length}개 (스킨 ${skinned}): ${meshes.join(', ')}`, `삼각형 약 ${Math.round(tris).toLocaleString()}개`,
-    `재질: ${[...mats].join(', ')}`, `텍스처: ${[...texs].join(', ') || '없음'}`,
-    `애니메이션: ${gltf.animations.map(a => `${a.name} (${a.duration.toFixed(2)}초)`).join(', ') || '없음'}`,
-    `크기(그대로 불러온 상태): 가로 ${size.x.toFixed(3)} · 높이 ${size.y.toFixed(3)} · 깊이 ${size.z.toFixed(3)}`].join('\n');
+  const meshes = [], mats = new Set(); let tris = 0;
+  gltf.scene.traverse(o => { if (!o.isMesh) return; meshes.push(o.name || '-'); const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; for (const m of [].concat(o.material)) mats.add(m.name || m.type); });
+  return `[${name}] 메시 ${meshes.length}개, 삼각형 약 ${Math.round(tris).toLocaleString()}개, 재질 ${[...mats].join(', ')}, 애니메이션 ${gltf.animations.length}개, 원래 크기 높이 ${size.y.toFixed(2)}`;
+}
+function listHtml(g) {
+  if (!g.animations.length) return '<h2>애니메이션 없음</h2>';
+  const by = {};
+  for (const a of g.animations) { const L = LABELS[a.name] || ['기타', a.name, '']; (by[L[0]] = by[L[0]] || []).push([a, L]); }
+  return GROUPS.filter(k => by[k]).map(k => `<h2>${k}</h2><div class="clips">${by[k].map(([a, L]) =>
+    `<button type="button" class="clip" data-a="${a.name}"><span>${L[1]}</span><small>${a.duration.toFixed(1)}초</small></button>`).join('')}</div>`).join('');
 }
 function show(name) {
   for (const b of $('models').children) b.setAttribute('aria-pressed', String(b.dataset.m === name));
   if (current) scene.remove(current.scene);
-  const g = loaded[name]; if (!g) return;
+  const g = loaded[name]; if (!g) { $('list').innerHTML = `<h2>${errors[name] || '불러오는 중…'}</h2>`; return; }
   current = g; scene.add(g.scene);
-  // centimeter models (FBX/Mixamo exports) are shown at real size
   if (g.fit === undefined) { const h = new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3()).y; g.fit = h > 10 ? 1.8 / h : 1; g.scene.scale.multiplyScalar(g.fit); }
   const box = new THREE.Box3().setFromObject(g.scene), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
-  target.copy(c); dist = Math.max(size.x, size.y, size.z) * 1.8 || 2; grid.position.y = box.min.y;
-  mixer = g.animations.length ? new THREE.AnimationMixer(g.scene) : null;
-  $('anims').innerHTML = g.animations.map(a => `<button type="button" data-a="${a.name}">${a.name}</button>`).join('');
-  if (g.animations.length) play(g.animations.find(a => /idle/i.test(a.name))?.name || g.animations[0].name);
-  $('info').textContent = MODELS.map(([n]) => loaded[n] ? loaded[n].info : `[${n}] ${errors[n] || '불러오는 중…'}`).join('\n\n');
+  target.set(c.x, Math.min(c.y, .95), c.z); dist = Math.max(size.x, size.y, size.z) * 1.9 || 2; grid.position.y = box.min.y;
+  mixer = g.animations.length ? new THREE.AnimationMixer(g.scene) : null; action = null;
+  $('list').innerHTML = listHtml(g);
+  if (g.animations.length) play((g.animations.find(a => a.name === 'Idle') || g.animations[0]).name);
+  else { $('nowName').textContent = name; $('nowUse').textContent = '애니메이션 없음'; }
+  $('info').textContent = MODELS.map(([n]) => loaded[n] ? loaded[n].info : `[${n}] ${errors[n] || '불러오는 중…'}`).join('\n');
 }
 function play(an) {
   if (!mixer) return; mixer.stopAllAction();
-  const clip = current.animations.find(a => a.name === an); if (clip) mixer.clipAction(clip).play();
-  for (const b of $('anims').children) b.setAttribute('aria-pressed', String(b.dataset.a === an));
+  const clip = current.animations.find(a => a.name === an); if (!clip) return;
+  action = mixer.clipAction(clip); action.reset(); action.setLoop($('loopBtn').getAttribute('aria-pressed') === 'true' ? THREE.LoopRepeat : THREE.LoopOnce); action.clampWhenFinished = true; action.play();
+  paused = false; $('playBtn').textContent = '일시정지';
+  for (const b of document.querySelectorAll('.clip')) b.setAttribute('aria-pressed', String(b.dataset.a === an));
+  const L = LABELS[an] || ['', an, '']; $('nowName').textContent = L[1]; $('nowUse').textContent = `${an} · 게임: ${L[2] || '-'}`;
+  $('time').max = clip.duration;
 }
 $('models').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b) show(b.dataset.m); });
-$('anims').addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b) play(b.dataset.a); });
-const errors = {};
+$('list').addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b) play(b.dataset.a); });
+$('playBtn').addEventListener('click', () => { paused = !paused; $('playBtn').textContent = paused ? '재생' : '일시정지'; if (!paused && action && !action.isRunning()) { action.reset(); action.play(); } });
+$('loopBtn').addEventListener('click', () => { const on = $('loopBtn').getAttribute('aria-pressed') !== 'true'; $('loopBtn').setAttribute('aria-pressed', String(on)); if (action) action.setLoop(on ? THREE.LoopRepeat : THREE.LoopOnce); });
+$('speeds').innerHTML = [.25, .5, 1, 2].map(v => `<button type="button" data-s="${v}" aria-pressed="${v === 1}">${v}×</button>`).join('');
+$('speeds').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (!b) return; speed = +b.dataset.s; for (const x of $('speeds').children) x.setAttribute('aria-pressed', String(x === b)); });
+$('time').addEventListener('input', () => { if (!action) return; scrubbing = true; paused = true; $('playBtn').textContent = '재생'; action.paused = false; action.enabled = true; action.time = +$('time').value; mixer.update(0); });
+$('time').addEventListener('change', () => { scrubbing = false; });
+addEventListener('keydown', e => {
+  if (!current || !current.animations.length || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+  const names = [...document.querySelectorAll('.clip')].map(b => b.dataset.a), i = names.indexOf(action && action.getClip().name);
+  play(names[(i + (e.key === 'ArrowRight' ? 1 : names.length - 1)) % names.length]);
+});
 $('models').innerHTML = MODELS.map(([n]) => `<button type="button" data-m="${n}">${n}</button>`).join('');
 const loader = new THREE.GLTFLoader();
 Promise.all(MODELS.map(([n, url]) => new Promise(res => loader.load(url, g => {
-  const size = new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3());
-  g.info = describe(n, g, size); loaded[n] = g; res();
+  g.info = describe(n, g, new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3())); loaded[n] = g; res();
 }, undefined, e => { errors[n] = '불러오기 실패: ' + (e && e.message || e); res(); })))).then(() => {
-  show(new URLSearchParams(location.search).get('m') || MODELS[0][0]);
+  const q = new URLSearchParams(location.search);
+  show(MODELS.find(([n]) => n.startsWith(q.get('m') || ''))?.[0] || MODELS[0][0]);
+  if (q.get('a')) play(q.get('a'));
   window.previewReady = true;
 });
 (function loop() {
   requestAnimationFrame(loop);
-  const dt = Math.min(.05, clock.getDelta()); if (mixer) mixer.update(dt);
+  const dt = Math.min(.05, clock.getDelta());
+  if (mixer && !paused) mixer.update(dt * speed);
+  if (action && !scrubbing) { $('time').value = action.time; $('tLabel').textContent = `${action.time.toFixed(2)} / ${action.getClip().duration.toFixed(2)}초`; }
+  else if (action) $('tLabel').textContent = `${(+$('time').value).toFixed(2)} / ${action.getClip().duration.toFixed(2)}초`;
   camera.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * dist, target.y + Math.sin(pitch) * dist, target.z + Math.cos(yaw) * Math.cos(pitch) * dist);
   camera.lookAt(target); renderer.render(scene, camera);
 })();
