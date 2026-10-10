@@ -1921,6 +1921,54 @@ function audioInit() {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   } catch (e) { AC = null; }
 }
+// ---- footsteps: everyone walking on the ground makes steps you hear from where they are (3D panning);
+// crouching is nearly silent, sprinting loud. Sand sounds softer and duller than concrete.
+const STEP = { len: { crouch: .55, walk: .78, run: 1.0 }, vol: { crouch: .1, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
+function setPanner(pn, x, y, z) { if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = y; pn.positionZ.value = z; } else pn.setPosition(x, y, z); }
+function footstep(a, vol, land) {
+  if (!AC || settings.volume <= 0 || vol < .02) return;
+  const t = AC.currentTime, sand = MAP_META.ground === 'sand', dur = land ? .17 : sand ? .12 : .075;
+  const src = AC.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = .8 + Math.random() * .4;
+  const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = (sand ? 850 : 1700) * (land ? .55 : 1) * (.85 + Math.random() * .3); f.Q.value = sand ? .7 : 1.3;
+  const g = AC.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * (sand ? .55 : .65), t + .004); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  src.connect(f); f.connect(g);
+  const o = AC.createOscillator(); o.frequency.setValueAtTime(land ? 75 : 115, t); o.frequency.exponentialRampToValueAtTime(45, t + .08);   // heel thump
+  const og = AC.createGain(); og.gain.setValueAtTime(vol * (land ? 1 : .45), t); og.gain.exponentialRampToValueAtTime(.001, t + .1); o.connect(og);
+  let out = MASTER;
+  if (!a.isMe) {
+    const pn = AC.createPanner(); pn.panningModel = 'HRTF'; pn.distanceModel = 'inverse'; pn.refDistance = 2.5; pn.maxDistance = STEP.range; pn.rolloffFactor = 1.15;
+    setPanner(pn, a.x, a.y + .1, a.z); pn.connect(MASTER); out = pn;
+  }
+  g.connect(out); og.connect(out);
+  src.start(t, Math.random() * .3, dur + .02); o.start(t); o.stop(t + .12);
+}
+// called once a frame: counts the distance each soldier covers on the ground and plays a step every stride
+function stepSounds(dt) {
+  if (!AC || dt <= 0) return;
+  for (const a of G.actors) {
+    if (a.dead || a._sx === undefined) { a._sx = a.x; a._sz = a.z; a._sy = a.y; a._sd = 0; a._air = false; continue; }
+    const d = Math.hypot(a.x - a._sx, a.z - a._sz), vy = (a.y - a._sy) / dt;
+    a._sx = a.x; a._sz = a.z; a._sy = a.y;
+    if (d > 3) { a._sd = 0; continue; }                                   // respawn or teleport, not a step
+    if (!a.isMe && Math.hypot(a.x - me.x, a.z - me.z) > STEP.range) { a._sd = 0; continue; }
+    const ground = a.isMe ? me.ground : a.ai ? true : Math.abs(vy) < 3.5; // bots never jump; the friend is airborne when moving fast vertically
+    if (ground && a._air && a.isMe) footstep(a, STEP.mine * 1.4, true);   // landing
+    a._air = !ground;
+    if (!ground) continue;
+    const sp = d / dt, sprint = a.isMe ? me.sprint : a.sprintF || sp > 6.5;
+    const kind = a.crouch ? 'crouch' : sprint ? 'run' : (a.isMe ? aiming : a.aiming) && sp < 4 ? 'slow' : 'walk';
+    a._sd += d;
+    const len = STEP.len[kind === 'slow' ? 'walk' : kind];
+    if (a._sd >= len) { a._sd -= len; if (a._sd > len) a._sd = 0; footstep(a, STEP.vol[kind] * (a.isMe ? STEP.mine : 1) * (.85 + Math.random() * .3)); }
+  }
+}
+// the ears follow the camera
+function updateListener() {
+  if (!AC) return;
+  const L = AC.listener, p = camera.position, f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), u = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  if (L.positionX) { L.positionX.value = p.x; L.positionY.value = p.y; L.positionZ.value = p.z; L.forwardX.value = f.x; L.forwardY.value = f.y; L.forwardZ.value = f.z; L.upX.value = u.x; L.upY.value = u.y; L.upZ.value = u.z; }
+  else { L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, u.x, u.y, u.z); }
+}
 function sfx(kind, vol = 1) {
   if (!AC || vol < .02 || settings.volume <= 0) return;
   const t = AC.currentTime, out = AC.createGain(); out.connect(MASTER);
@@ -3383,7 +3431,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-10 #25)';
+const GAME_VERSION = '1.0 (10-10 #26)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3943,13 +3991,14 @@ function frame(ts) {
     if (G.countdown <= 0) { G.state = 'play'; $('centerMsg').hidden = true; }
   }
   recFrame();
-  if (G.state === 'play' || (NET.role !== 'off' && G.state === 'pause' && G.resume === 'play')) for (let i = 0; i < n && G.state !== 'ending' && G.state !== 'over'; i++) step(dt);   // online games keep running while paused
+  if (G.state === 'play' || (NET.role !== 'off' && G.state === 'pause' && G.resume === 'play')) { for (let i = 0; i < n && G.state !== 'ending' && G.state !== 'over'; i++) step(dt); stepSounds(full); }   // online games keep running while paused
   else if (G.state === 'ending') {
     for (let i = 0; i < n; i++) { G.endT += dt; step(dt * (G.endT < .25 ? 1 - (1 - END_SLOW) * G.endT / .25 : END_SLOW)); }
     if (G.endT >= END_TIME) { if (!startReplay()) showResults(); }
   } else if (G.state === 'replay') updateReplay(full);
   else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe && !a.remote) updateBot(a, 0); }
   render(full);
+  updateListener();
   requestAnimationFrame(frame);
 }
 function step(dt) {
