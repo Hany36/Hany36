@@ -29,7 +29,7 @@
 <script src="lib/GLTFLoader.js"></script>
 <script>
 // Loads each model in assets/models, frames it, and lists what is inside (meshes, materials, textures, animations, size).
-const MODELS = [['soldier', 'assets/models/soldier.glb'], ['gun', 'assets/models/gun.glb']];
+const MODELS = [['swat', 'assets/models/swat.glb'], ['soldier', 'assets/models/soldier.glb'], ['gun', 'assets/models/gun.glb']];
 const $ = id => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true, preserveDrawingBuffer: true });
 renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -37,7 +37,7 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2e33);
 scene.add(new THREE.HemisphereLight(0xe8eef5, 0x3a342c, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(2, 4, 3); scene.add(sun);
 const grid = new THREE.GridHelper(4, 16, 0x667066, 0x3c423c); scene.add(grid);
-const camera = new THREE.PerspectiveCamera(40, 1, .01, 100);
+const camera = new THREE.PerspectiveCamera(40, 1, .01, 500);
 let current = null, mixer = null, yaw = .6, pitch = .15, dist = 3, target = new THREE.Vector3(0, 1, 0);
 const clock = new THREE.Clock(), loaded = {};
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
@@ -65,6 +65,8 @@ function show(name) {
   if (current) scene.remove(current.scene);
   const g = loaded[name]; if (!g) return;
   current = g; scene.add(g.scene);
+  // centimeter models (FBX/Mixamo exports) are shown at real size
+  if (g.fit === undefined) { const h = new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3()).y; g.fit = h > 10 ? 1.8 / h : 1; g.scene.scale.multiplyScalar(g.fit); }
   const box = new THREE.Box3().setFromObject(g.scene), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
   target.copy(c); dist = Math.max(size.x, size.y, size.z) * 1.8 || 2; grid.position.y = box.min.y;
   mixer = g.animations.length ? new THREE.AnimationMixer(g.scene) : null;
