@@ -1920,6 +1920,7 @@ function buildViewModels() {
   knife.rotation.x = .4;
   models.knife = arms(knife, [0, 0, .02]);
   // the knife handle runs front to back: the fist turns so the thumb points along the blade and the knuckles outward
+  models.knife.userData.grip.fist = true;   // the index finger closes around the handle too
   models.knife.userData.grip.turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(0, 0, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1));
   // SMG: short receiver, stubby barrel, iron sights
   const smg = new THREE.Group();
@@ -1996,7 +1997,8 @@ function initFpArms() {
   const mid = W('RightArm').add(W('LeftArm')).multiplyScalar(.5);
   model.position.set(-mid.x + (FPA.shoulder.R[0] + FPA.shoulder.L[0]) / 2, -mid.y + FPA.shoulder.R[1], -mid.z + FPA.shoulder.R[2]);
   vmScene.add(model);
-  vm.arms = { model, side, team: null };
+  const fingers = ['RightHandIndex1', 'RightHandIndex2', 'RightHandIndex3'].filter(n => bones[n]).map(n => [bones[n], bones[n].quaternion.clone()]);
+  vm.arms = { model, side, team: null, fingers };
   for (const m of vm.boxArms) m.visible = false;
 }
 // first person: the weapon models take the block weapons' place (which stay if the file can't load). Each model sits so its
@@ -2024,6 +2026,16 @@ function applyGunModels() {
   }
 }
 const VM_HIP = [.17, -.19, -.4];
+// a knife slash, inside to outside: the hand sweeps from across the body (left) out to the right with the tip and the edge leading.
+// s: 0..1 progress (-1: no swing). Offsets for the first-person weapon's position and rotation
+// The swing takes the first 70% of SLASH_TIME, then the hand eases back to where it rests.
+const SLASH_TIME = .35;
+function slashPose(s) {
+  if (s < 0) return { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+  const w = Math.min(1, s / .7), e = w * w * (3 - 2 * w), arc = Math.sin(w * Math.PI);
+  const r = s > .7 ? (s - .7) / .3 : 0, back = 1 - r * r * (3 - 2 * r);   // 1 during the swing, down to 0 on the way back
+  return { x: (-.36 + .5 * e) * back, y: .04 * arc, z: -.12 * arc, rx: -.4 * arc, ry: (1.25 - 2.1 * e) * back, rz: .6 * arc };
+}
 let DOT_TEX = null;
 function dotTexture() {   // a soft red point of light
   if (DOT_TEX) return DOT_TEX;
@@ -2033,6 +2045,7 @@ function dotTexture() {   // a soft red point of light
 }
 // the red dot fades in as the weapon comes up to the eye
 function setReticle(key, k) { const g = vm.models[key], r = g && g.userData.reticle; if (r) r.material.opacity = k; }   // where a weapon sits in first person when not aiming (x right, y up, z ahead of the eye)
+const FIST_Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), .6);   // per index finger joint
 const FPV = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Quaternion(), new THREE.Quaternion()];
 // every frame: hands onto the visible weapon's grips; shoulders move in toward a far grip so the arm always reaches
 function fpArmsPose(team) {
@@ -2046,6 +2059,7 @@ function fpArmsPose(team) {
   }
   vm.root.updateMatrixWorld(true);
   for (const k in A.side) for (const [b, q, p] of A.side[k].rest) { b.quaternion.copy(q); b.position.copy(p); b.scale.setScalar(1); }
+  for (const [b, q] of A.fingers) { b.quaternion.copy(q); if (grip.fist) b.quaternion.multiply(FIST_Q); }   // a closed fist for the knife
   A.model.updateMatrixWorld(true);
   const gq = g.getWorldQuaternion(FPV[3]); if (grip.turn) gq.multiply(grip.turn);
   for (const k of ['R', 'L']) {
@@ -2570,7 +2584,7 @@ function shoot() {
   fireCd = w.rate;
   const o = eyePos(me);
   if (w.melee) {
-    vm.knifeT = .25; me.stats.shots++;
+    vm.knifeT = SLASH_TIME; me.stats.shots++;
     // a horizontal slash: several rays fanned left to right (and a little up/down), so a hit doesn't need pinpoint aim
     let hit = null;
     for (let i = -4; i <= 4; i++) for (const dp of [-.18, 0, .18]) {
@@ -3615,14 +3629,14 @@ function renderReplay(dt) {
     if (scoped) return;
     if (key && vm.models[key]) {
       for (const m in vm.models) vm.models[m].visible = m === key;
-      const kd = RP.kill.t - RP.t, slash = RP.kind === 'knife' && kd < .25 && kd > -.05 ? 1 - Math.max(0, kd) / .25 : -1, sl = slash >= 0 ? Math.sin(slash * Math.PI) : 0;
+      const kd = RP.kill.t - RP.t, SP = slashPose(RP.kind === 'knife' && kd < SLASH_TIME * .7 && kd > -SLASH_TIME * .3 ? Math.min(1, (SLASH_TIME * .7 - kd) / SLASH_TIME) : -1);
       const sp = Math.min(1, Math.hypot(kp.x - (RP.lastKx ?? kp.x), kp.z - (RP.lastKz ?? kp.z)) / Math.max(1e-3, dt) / 5); RP.lastKx = kp.x; RP.lastKz = kp.z;
       RP.bob = (RP.bob || 0) + dt * sp * 9;
       vm.root.visible = true; vm.flash.visible = RP.kick > .7;
       vm.flash.position.set(0, FLASH_Y[key] ?? .01, FLASH_Z[key] || -.6);
       const HP = (W && W.hip) || VM_HIP, ak = W.scope ? 0 : RP.adsK, hx = HP[0] + Math.cos(RP.bob) * .01 * sp, hy = HP[1] - Math.abs(Math.sin(RP.bob)) * .012 * sp;
-      vm.root.position.set(hx + (0 - hx) * ak + (slash >= 0 ? .14 - slash * .34 : 0), hy + ((W.adsY ?? hy) - hy) * ak + sl * .03, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) - sl * .08);
-      vm.root.rotation.set(RP.kick * .08 + (W && W.adsTilt || 0) * ak, slash >= 0 ? .9 - slash * 1.9 : 0, slash >= 0 ? -1.2 * sl : 0);
+      vm.root.position.set(hx + (0 - hx) * ak + SP.x, hy + ((W.adsY ?? hy) - hy) * ak + SP.y, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) + SP.z);
+      vm.root.rotation.set(RP.kick * .08 + (W && W.adsTilt || 0) * ak + SP.rx, SP.ry, SP.rz);
       setReticle(key, Math.max(0, ak * 1.4 - .4));
       fpArmsPose(kp.team); renderer.clearDepth(); renderer.render(vmScene, vmCamera);
     }
@@ -3724,7 +3738,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #31)';
+const GAME_VERSION = '1.0 (10-12 #32)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4354,12 +4368,12 @@ function render(dt) {
     vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * Math.min(1, dt * 18);
     vm.ay = vm.ay === undefined ? ty : vm.ay + (ty - vm.ay) * Math.min(1, dt * 18);
     vm.az = vm.az === undefined ? tz : vm.az + (tz - vm.az) * Math.min(1, dt * 18);
-    const slash = vm.knifeT > 0 ? 1 - vm.knifeT / .25 : -1, sl = slash >= 0 ? Math.sin(slash * Math.PI) : 0;   // 0..1 progress of a knife swing
-    vm.root.position.set(vm.ax + (slash >= 0 ? .14 - slash * .34 : 0), vm.ay - sw * .3 - rl * .12 + sl * .03, vm.az + vm.kick * (ads ? .02 : .05) - sl * .08);
+    const SP = slashPose(vm.knifeT > 0 ? 1 - vm.knifeT / SLASH_TIME : -1);   // a knife swing in progress
+    vm.root.position.set(vm.ax + SP.x, vm.ay - sw * .3 - rl * .12 + SP.y, vm.az + vm.kick * (ads ? .02 : .05) + SP.z);
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
     vm.tilt = (vm.tilt || 0) + ((ads ? w.adsTilt || 0 : 0) - (vm.tilt || 0)) * Math.min(1, dt * 18);
     vm.adsK = (vm.adsK || 0) + ((ads ? 1 : 0) - (vm.adsK || 0)) * Math.min(1, dt * 14); setReticle(weapon, Math.max(0, vm.adsK * 1.4 - .4));
-    vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - vm.sprintK * .12 + vm.tilt, vm.sprintK * .45 + (slash >= 0 ? .9 - slash * 1.9 : 0), rl * .3 + bolt * .2 + vm.sprintK * .2 + (slash >= 0 ? -1.2 * sl : 0));
+    vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - vm.sprintK * .12 + vm.tilt + SP.rx, vm.sprintK * .45 + SP.ry, rl * .3 + bolt * .2 + vm.sprintK * .2 + SP.rz);
     vm.flash.position.set(0, FLASH_Y[weapon] ?? .01, FLASH_Z[weapon] || -.6);
     shadowT += dt;
     if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
