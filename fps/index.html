@@ -1603,29 +1603,35 @@ const CHARACTER = {
 };
 // weapon models: assets/models/weapons.glb, made from the Sketchfab files in assets/models/source (CC BY 4.0, see ASSET_CREDITS.md).
 // Each one points its barrel at -z, centered, as long as the game's old block weapon. Spots on each model (meters, its own space):
-// r: right hand on the grip, l: left hand (null: one-handed), sight: height of the sight line, muzzle: [y, z], dot: [rail top y, z] for the red dot;
+// r: right hand on the grip, l: left hand (null: one-handed), sight: height of the sight line, muzzle: [y, z], mount: [y, z] where the reflex sight sits;
 // sightLine: [[z, y] rear, [z, y] front] when the sights are not level with the barrel; eye: how far the rear sight sits ahead of the eye when aiming;
 // sx: how far left (-) of the model's middle the sights are; hip: where the weapon sits in first person when not aiming, if not the usual
 const GUN_MODELS = {
   url: 'assets/models/weapons.glb',
-  rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], sight: .2145, muzzle: [.12, -.555], dot: [.16, .05] },
+  rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], muzzle: [.12, -.555], mount: [.1586, .06] },   // on the upper receiver's rail
   pistol:   { r: [0, -.025, .065], l: [-.02, -.035, .045], sight: .072, muzzle: [.045, -.11], hip: [.15, -.14, -.36] },
   sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], sight: .095, muzzle: [0, -.6] },
   shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], sight: .105, muzzle: [.07, -.51] },
-  // MP5: the rear sight drum is solid, so the eye looks over its top at the front post's tip (the gun tilts that line level)
-  smg:      { r: [0, -.035, .085], l: [0, .05, -.22], sightLine: [[.05, .14], [-.295, .108]], eye: .13, sx: -.004, muzzle: [.05, -.34] },
+  smg:      { r: [0, -.035, .085], l: [0, .05, -.22], muzzle: [.05, -.34], mount: [.122, -.06] },   // on the receiver, ahead of the rear sight drum
   revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .066, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
   knife:    { r: [0, 0, .1], l: null },
 };
+// the reflex sight (node 'sight' in weapons.glb, base on y = 0): the middle of its lens hoop, where the red dot shows
+const SIGHT = { dot: [-.0055, .0432, -.042] };
 const CHAR = { gltf: null, scale: 1, clips: [], teamMat: {}, guns: null };
 function loadWeapons() {
   return new Promise(resolve => {
     if (!THREE.GLTFLoader || location.protocol === 'file:') { resolve(false); return; }
     const done = ok => { clearTimeout(timer); resolve(ok); }, timer = setTimeout(() => done(false), 20000);
     new THREE.GLTFLoader().load(GUN_MODELS.url, g => {
-      const guns = {};
+      const guns = {}, sight = g.scene.getObjectByName('sight');
       for (const k in GUN_MODELS) {
         const o = k !== 'url' && g.scene.getObjectByName(k); if (!o) continue;
+        const sp = GUN_MODELS[k];
+        if (sp.mount && sight) {   // the reflex sight on its mount, lens hoop over the barrel; aiming looks through the hoop
+          const s = sight.clone(); s.position.set(-SIGHT.dot[0], sp.mount[0], sp.mount[1]); o.add(s);
+          sp.sight = sp.mount[0] + SIGHT.dot[1]; sp.dot = [0, sp.sight, sp.mount[1] + SIGHT.dot[2]];
+        }
         o.traverse(m => { if (m.isMesh) m.castShadow = true; });
         guns[k] = o;
       }
@@ -2003,8 +2009,10 @@ function applyGunModels() {
     for (const c of g.children) c.visible = false;
     const off = new THREE.Vector3(grip.rh[0] - spec.r[0] - (spec.sx || 0), grip.rh[1] - spec.r[1], grip.rh[2] - spec.r[2]), m = src.clone();
     m.position.copy(off); g.add(m);
-    const dot = g.userData.dot;   // the red dot sight moves onto the new rifle's rail
-    if (dot && spec.dot) { dot.visible = true; dot.position.set(0, spec.dot[0] + .0275 + off.y, spec.dot[1] + off.z); }
+    if (spec.dot) {   // the glowing red dot in the sight's lens, shown while aiming
+      const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), depthTest: false, depthWrite: false, transparent: true, opacity: 0, toneMapped: false }));
+      d.scale.setScalar(.0075); d.position.set(spec.dot[0] + off.x, spec.dot[1] + off.y, spec.dot[2] + off.z); d.renderOrder = 3; g.add(d); g.userData.reticle = d;
+    }
     g.userData.grip = Object.assign({}, grip, { lh: spec.l ? [spec.l[0] + off.x, spec.l[1] + off.y, spec.l[2] + off.z] : null });
     if (WEAPONS[k] && !WEAPONS[k].scope && spec.sight) WEAPONS[k].adsY = -(spec.sight + off.y);
     if (spec.muzzle) { FLASH_Z[k] = spec.muzzle[1] + off.z; FLASH_Y[k] = spec.muzzle[0] + off.y; }
@@ -2015,7 +2023,16 @@ function applyGunModels() {
     }
   }
 }
-const VM_HIP = [.17, -.19, -.4];   // where a weapon sits in first person when not aiming (x right, y up, z ahead of the eye)
+const VM_HIP = [.17, -.19, -.4];
+let DOT_TEX = null;
+function dotTexture() {   // a soft red point of light
+  if (DOT_TEX) return DOT_TEX;
+  const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+  gr.addColorStop(0, 'rgba(255,90,70,1)'); gr.addColorStop(.42, 'rgba(255,20,10,1)'); gr.addColorStop(.7, 'rgba(230,0,0,.4)'); gr.addColorStop(1, 'rgba(200,0,0,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 32, 32); return (DOT_TEX = new THREE.CanvasTexture(c));
+}
+// the red dot fades in as the weapon comes up to the eye
+function setReticle(key, k) { const g = vm.models[key], r = g && g.userData.reticle; if (r) r.material.opacity = k; }   // where a weapon sits in first person when not aiming (x right, y up, z ahead of the eye)
 const FPV = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Quaternion(), new THREE.Quaternion()];
 // every frame: hands onto the visible weapon's grips; shoulders move in toward a far grip so the arm always reaches
 function fpArmsPose(team) {
@@ -3606,6 +3623,7 @@ function renderReplay(dt) {
       const HP = (W && W.hip) || VM_HIP, ak = W.scope ? 0 : RP.adsK, hx = HP[0] + Math.cos(RP.bob) * .01 * sp, hy = HP[1] - Math.abs(Math.sin(RP.bob)) * .012 * sp;
       vm.root.position.set(hx + (0 - hx) * ak + (slash >= 0 ? .14 - slash * .34 : 0), hy + ((W.adsY ?? hy) - hy) * ak + sl * .03, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) - sl * .08);
       vm.root.rotation.set(RP.kick * .08 + (W && W.adsTilt || 0) * ak, slash >= 0 ? .9 - slash * 1.9 : 0, slash >= 0 ? -1.2 * sl : 0);
+      setReticle(key, Math.max(0, ak * 1.4 - .4));
       fpArmsPose(kp.team); renderer.clearDepth(); renderer.render(vmScene, vmCamera);
     }
     return;
@@ -3706,7 +3724,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #30)';
+const GAME_VERSION = '1.0 (10-12 #31)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4340,6 +4358,7 @@ function render(dt) {
     vm.root.position.set(vm.ax + (slash >= 0 ? .14 - slash * .34 : 0), vm.ay - sw * .3 - rl * .12 + sl * .03, vm.az + vm.kick * (ads ? .02 : .05) - sl * .08);
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
     vm.tilt = (vm.tilt || 0) + ((ads ? w.adsTilt || 0 : 0) - (vm.tilt || 0)) * Math.min(1, dt * 18);
+    vm.adsK = (vm.adsK || 0) + ((ads ? 1 : 0) - (vm.adsK || 0)) * Math.min(1, dt * 14); setReticle(weapon, Math.max(0, vm.adsK * 1.4 - .4));
     vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - vm.sprintK * .12 + vm.tilt, vm.sprintK * .45 + (slash >= 0 ? .9 - slash * 1.9 : 0), rl * .3 + bolt * .2 + vm.sprintK * .2 + (slash >= 0 ? -1.2 * sl : 0));
     vm.flash.position.set(0, FLASH_Y[weapon] ?? .01, FLASH_Z[weapon] || -.6);
     shadowT += dt;
