@@ -23,6 +23,14 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run dist
+      - name: 릴리스의 예전 파일 지우기 (Jammini_FPS_1.0.exe만 남김)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $names = gh release view desktop --repo ${{ github.repository }} --json assets --jq '.assets[].name'
+          foreach ($n in $names) { if ($n -and $n -ne 'Jammini_FPS_1.0.exe') { gh release delete-asset desktop $n --repo ${{ github.repository }} -y } }
       - name: 릴리스에 올리기
         uses: softprops/action-gh-release@v2
         with:
