@@ -1601,7 +1601,38 @@ const CHARACTER = {
   hipTurn: 1.1,                // how far (radians) the legs may turn toward a sideways move while the chest keeps facing ahead
   band: { bone: 'LeftArm', radius: .065, length: .09, offset: .14 },        // team-colored armband
 };
-const CHAR = { gltf: null, scale: 1, clips: [], teamMat: {} };
+// weapon models: assets/models/weapons.glb, made from the Sketchfab files in assets/models/source (CC BY 4.0, see ASSET_CREDITS.md).
+// Each one points its barrel at -z, centered, as long as the game's old block weapon. Spots on each model (meters, its own space):
+// r: right hand on the grip, l: left hand (null: one-handed), sight: height of the sight line, muzzle: [y, z], dot: [rail top y, z] for the red dot;
+// sightLine: [[z, y] rear, [z, y] front] when the sights are not level with the barrel; eye: how far the rear sight sits ahead of the eye when aiming;
+// sx: how far left (-) of the model's middle the sights are; hip: where the weapon sits in first person when not aiming, if not the usual
+const GUN_MODELS = {
+  url: 'assets/models/weapons.glb',
+  rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], sight: .2145, muzzle: [.12, -.555], dot: [.16, .05] },
+  pistol:   { r: [0, -.025, .065], l: [-.02, -.035, .045], sight: .072, muzzle: [.045, -.11], hip: [.15, -.14, -.36] },
+  sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], sight: .095, muzzle: [0, -.6] },
+  shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], sight: .105, muzzle: [.07, -.51] },
+  // MP5: the rear sight drum is solid, so the eye looks over its top at the front post's tip (the gun tilts that line level)
+  smg:      { r: [0, -.035, .085], l: [0, .05, -.22], sightLine: [[.05, .14], [-.295, .108]], eye: .13, sx: -.004, muzzle: [.05, -.34] },
+  revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .066, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
+  knife:    { r: [0, 0, .1], l: null },
+};
+const CHAR = { gltf: null, scale: 1, clips: [], teamMat: {}, guns: null };
+function loadWeapons() {
+  return new Promise(resolve => {
+    if (!THREE.GLTFLoader || location.protocol === 'file:') { resolve(false); return; }
+    const done = ok => { clearTimeout(timer); resolve(ok); }, timer = setTimeout(() => done(false), 20000);
+    new THREE.GLTFLoader().load(GUN_MODELS.url, g => {
+      const guns = {};
+      for (const k in GUN_MODELS) {
+        const o = k !== 'url' && g.scene.getObjectByName(k); if (!o) continue;
+        o.traverse(m => { if (m.isMesh) m.castShadow = true; });
+        guns[k] = o;
+      }
+      CHAR.guns = guns; done(true);
+    }, undefined, () => done(false));
+  });
+}
 function loadCharacter() {
   return new Promise(resolve => {
     if (!THREE.GLTFLoader || !THREE.SkeletonUtils || location.protocol === 'file:') { resolve(false); return; }
@@ -1671,14 +1702,21 @@ function rigSoldier(team) {
     else { act[k].play(); act[k].setEffectiveWeight(k === 'idle' ? 1 : 0); }
   }
   mixer.update(Math.random() * 2);   // so not everyone breathes in sync
-  const R = CHARACTER.rifle, gun = rifleModel(R.scale); gun.position.set(...R.pos); root.add(gun);
+  // the gun in hand: every weapon model, its grip on the rifle's right-hand spot; the one being held is shown
+  const R = CHARACTER.rifle, gun = new THREE.Group(), held = {}; gun.scale.setScalar(R.scale); gun.position.set(...R.pos); root.add(gun);
+  if (CHAR.guns) for (const k in CHAR.guns) {
+    const sp = GUN_MODELS[k], m = CHAR.guns[k].clone(), o = [R.gripR[0] - sp.r[0], R.gripR[1] - sp.r[1], R.gripR[2] - sp.r[2]];
+    m.position.set(...o); m.visible = false; gun.add(m);
+    held[k] = { m, l: sp.l && [sp.l[0] + o[0], sp.l[1] + o[1], sp.l[2] + o[2]], muzzle: sp.muzzle && [0, sp.muzzle[0] + o[1], sp.muzzle[1] + o[2]] };
+  }
+  else { const m = rifleModel(1); gun.add(m); held.rifle = { m, l: R.gripL, muzzle: [0, .01, -.71] }; }
   const bb = CHARACTER.band, arm = bones[bb.bone];
   if (arm) {   // armband in team color, sized in meters whatever the bone's scale
     const band = new THREE.Mesh(new THREE.CylinderGeometry(bb.radius, bb.radius, bb.length, 12, 1, true), MAT.band[team]);
     band.material.side = THREE.DoubleSide; band.scale.setScalar(1 / CHAR.scale); band.position.y = bb.offset / CHAR.scale; arm.add(band);
   }
   root.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  root.userData = { rig: { model, mixer, act, bones, hips0: bones.Hips ? bones.Hips.position.clone() : null }, gun };
+  root.userData = { rig: { model, mixer, act, bones, hips0: bones.Hips ? bones.Hips.position.clone() : null }, gun, held, gunKey: null };
   return root;
 }
 // ---- small IK helpers (world space)
@@ -1808,8 +1846,9 @@ function animateRig(a, dt, sp) {
   twistBone(B.Spine1, fwd, a.leanK * .32 * up1);
   twistBone(B.Spine2, right, (a.pitch * .45 - a.sprintK * .25 - a.crouchK * .1) * up1);
   twistBone(B.Neck, right, a.pitch * .3);
-  // the rifle: raised to the eye when aiming, lowered when sprinting, tilted with the view; hands placed on it
-  const g = u.gun;
+  // the gun: raised to the eye when aiming, lowered when sprinting, tilted with the view; hands placed on it
+  const g = u.gun, hw = heldWeapon(a), wk = u.held[hw] ? hw : u.held.rifle ? 'rifle' : Object.keys(u.held)[0], H = u.held[wk];
+  if (u.gunKey !== wk) { for (const k in u.held) u.held[k].m.visible = k === wk; u.gunKey = wk; }
   const PG = CHARACTER.prone.gun;
   g.position.set(R.pos[0] + a.aimK * R.aimShift[0] + a.leanK * LEAN_DIST * .6 + PG[0] * pk, R.pos[1] + chestDy + a.aimK * R.aimRaise * up1 - a.sprintK * R.sprintDrop + PG[1] * pk, R.pos[2] - chestDf + a.aimK * R.aimShift[1] + PG[2] * pk);
   g.rotation.set(a.pitch * (1 - a.sprintK) - a.sprintK * .6, a.sprintK * .5, -a.leanK * .3);
@@ -1820,8 +1859,10 @@ function animateRig(a, dt, sp) {
     ik2(B.RightArm, B.RightForeArm, B.RightHand, t.clone(), pole);
   }
   if (B.LeftArm && B.LeftForeArm && B.LeftHand) {
-    const t = g.localToWorld(RIGV.t.set(R.gripL[0], R.gripL[1], R.gripL[2] + R.wrist / R.scale));
-    const pole = B.LeftArm.getWorldPosition(new THREE.Vector3()).addScaledVector(right, -.5).add(new THREE.Vector3(0, -.7, 0));
+    const sh = B.LeftArm.getWorldPosition(new THREE.Vector3());
+    // one-handed (knife): the left hand hangs at the side
+    const t = H.l ? g.localToWorld(RIGV.t.set(H.l[0], H.l[1], H.l[2] + R.wrist / R.scale)) : RIGV.t.copy(sh).add(new THREE.Vector3(0, -.5, 0)).addScaledVector(fwd, .1).addScaledVector(right, -.06);
+    const pole = sh.clone().addScaledVector(right, -.5).add(new THREE.Vector3(0, -.7, 0)).addScaledVector(fwd, H.l ? 0 : -.6);
     ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, t.clone(), pole);
   }
 }
@@ -1854,7 +1895,7 @@ function buildViewModels() {
   sight.add(meshAt(new THREE.BoxGeometry(.044, .006, .035), MAT.gun, 0, .045, -.006));             // housing top
   const ring = new THREE.Mesh(new THREE.TorusGeometry(.017, .0022, 6, 24), MAT.gun); ring.position.set(0, .027, -.022); sight.add(ring);
   const lens = new THREE.Mesh(new THREE.CircleGeometry(.016, 20), new THREE.MeshBasicMaterial({ color: 0x7ad8ff, transparent: true, opacity: .12 })); lens.position.set(0, .027, -.02); sight.add(lens);
-  rifle.add(sight);
+  rifle.add(sight); rifle.userData.dot = sight;
   models.rifle = arms(rifle, [0, -.1, .1], [0, -.05, -.27]);
   const pistol = new THREE.Group();
   pistol.add(meshAt(new THREE.BoxGeometry(.035, .04, .19), MAT.gun2, 0, .02, 0), meshAt(new THREE.BoxGeometry(.032, .03, .17), MAT.gun, 0, -.01, -.01));
@@ -1952,6 +1993,29 @@ function initFpArms() {
   vm.arms = { model, side, team: null };
   for (const m of vm.boxArms) m.visible = false;
 }
+// first person: the weapon models take the block weapons' place (which stay if the file can't load). Each model sits so its
+// grip lands where the block weapon's grip was; the left hand, the aim line (adsY) and the muzzle flash follow the model's own spots
+function applyGunModels() {
+  if (!CHAR.guns) return;
+  for (const k in vm.models) {
+    const g = vm.models[k], src = CHAR.guns[k], spec = GUN_MODELS[k], grip = g.userData.grip;
+    if (!src || !spec || !grip) continue;
+    for (const c of g.children) c.visible = false;
+    const off = new THREE.Vector3(grip.rh[0] - spec.r[0] - (spec.sx || 0), grip.rh[1] - spec.r[1], grip.rh[2] - spec.r[2]), m = src.clone();
+    m.position.copy(off); g.add(m);
+    const dot = g.userData.dot;   // the red dot sight moves onto the new rifle's rail
+    if (dot && spec.dot) { dot.visible = true; dot.position.set(0, spec.dot[0] + .0275 + off.y, spec.dot[1] + off.z); }
+    g.userData.grip = Object.assign({}, grip, { lh: spec.l ? [spec.l[0] + off.x, spec.l[1] + off.y, spec.l[2] + off.z] : null });
+    if (WEAPONS[k] && !WEAPONS[k].scope && spec.sight) WEAPONS[k].adsY = -(spec.sight + off.y);
+    if (spec.muzzle) { FLASH_Z[k] = spec.muzzle[1] + off.z; FLASH_Y[k] = spec.muzzle[0] + off.y; }
+    if (WEAPONS[k] && spec.hip) WEAPONS[k].hip = spec.hip;
+    if (WEAPONS[k] && spec.sightLine) {   // tilt the gun while aiming so the line over the rear sight to the front sight is level, rear sight on the eye line
+      const [[zr, yr], [zf, yf]] = spec.sightLine, th = Math.atan2(yr - yf, zr - zf), py = yr + off.y, pz = zr + off.z;
+      WEAPONS[k].adsTilt = th; WEAPONS[k].adsY = -(py * Math.cos(th) - pz * Math.sin(th)); WEAPONS[k].adsZ = -spec.eye - (py * Math.sin(th) + pz * Math.cos(th));
+    }
+  }
+}
+const VM_HIP = [.17, -.19, -.4];   // where a weapon sits in first person when not aiming (x right, y up, z ahead of the eye)
 const FPV = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Quaternion(), new THREE.Quaternion()];
 // every frame: hands onto the visible weapon's grips; shoulders move in toward a far grip so the arm always reaches
 function fpArmsPose(team) {
@@ -2567,6 +2631,8 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
   }
 }
 function muzzleOf(a) {
+  const u = a.mesh && a.mesh.userData, H = u && u.held && u.held[u.gunKey];
+  if (H && H.muzzle && a.mesh.visible && !a.dead) { const v = u.gun.localToWorld(new THREE.Vector3(...H.muzzle)); return [v.x, v.y, v.z]; }
   const s = Math.sin(a.yaw), c = Math.cos(a.yaw);
   const [lx, lz] = leanVec(a), up = (a.aimK || 0) * .22;
   return [a.x + lx - s * .95 + c * .06, a.y + (a.crouch ? .9 : 1.34) + up, a.z + lz - c * .95 - s * .06];
@@ -2653,13 +2719,14 @@ function updateNades(dt) {
 }
 
 // =============== scavenger: dead soldiers drop their gun and ammo ===============
-const FLASH_Z = { pistol: -.16, revolver: -.24, sniper: -.85, rifle: -.72, smg: -.36, shotgun: -.64 };
+const FLASH_Z = { pistol: -.16, revolver: -.24, sniper: -.85, rifle: -.72, smg: -.36, shotgun: -.64 }, FLASH_Y = {};
 const PICKUPS = [], PICK_LIFE = 30, MAX_RES = { rifle: 180, sniper: 30, pistol: 72, smg: 192, shotgun: 35, revolver: 36 };
 const PICK_GAIN = { rifle: 60, sniper: 10, pistol: 24, smg: 64, shotgun: 14, revolver: 12 };
 function dropPickup(a) {
   if (PICKUPS.length >= 14) removePickup(0);
   const g = new THREE.Group();
-  const gun = rifleModel(1.05); gun.rotation.set(0, Math.random() * 6, Math.PI / 2); gun.position.y = .05; g.add(gun);
+  const key = (a.isMe ? weapon : a.weapon) || 'rifle', gun = CHAR.guns && CHAR.guns[key] ? CHAR.guns[key].clone() : rifleModel(1.05);   // the weapon they held
+  gun.position.set(0, .05, 0); gun.rotation.set(0, Math.random() * 6, Math.PI / 2); g.add(gun);
   const box = meshAt(new THREE.BoxGeometry(.3, .16, .2), MAT.ammoBox, .25, .08, .2); g.add(box);
   const ring = new THREE.Mesh(new THREE.RingGeometry(.45, .55, 28), MAT.pickRing); ring.rotation.x = -Math.PI / 2; ring.position.y = .02; g.add(ring);
   g.traverse(o => { if (o.isMesh && o !== ring) o.castShadow = true; });
@@ -3535,10 +3602,10 @@ function renderReplay(dt) {
       const sp = Math.min(1, Math.hypot(kp.x - (RP.lastKx ?? kp.x), kp.z - (RP.lastKz ?? kp.z)) / Math.max(1e-3, dt) / 5); RP.lastKx = kp.x; RP.lastKz = kp.z;
       RP.bob = (RP.bob || 0) + dt * sp * 9;
       vm.root.visible = true; vm.flash.visible = RP.kick > .7;
-      vm.flash.position.set(0, .01, FLASH_Z[key] || -.6);
-      const ak = W.scope ? 0 : RP.adsK, hx = .17 + Math.cos(RP.bob) * .01 * sp, hy = -.19 - Math.abs(Math.sin(RP.bob)) * .012 * sp;
-      vm.root.position.set(hx + (0 - hx) * ak + (slash >= 0 ? .14 - slash * .34 : 0), hy + ((W.adsY ?? hy) - hy) * ak + sl * .03, -.4 + ((W.adsZ ?? -.4) + .4) * ak + RP.kick * (ak ? .02 : .05) - sl * .08);
-      vm.root.rotation.set(RP.kick * .08, slash >= 0 ? .9 - slash * 1.9 : 0, slash >= 0 ? -1.2 * sl : 0);
+      vm.flash.position.set(0, FLASH_Y[key] ?? .01, FLASH_Z[key] || -.6);
+      const HP = (W && W.hip) || VM_HIP, ak = W.scope ? 0 : RP.adsK, hx = HP[0] + Math.cos(RP.bob) * .01 * sp, hy = HP[1] - Math.abs(Math.sin(RP.bob)) * .012 * sp;
+      vm.root.position.set(hx + (0 - hx) * ak + (slash >= 0 ? .14 - slash * .34 : 0), hy + ((W.adsY ?? hy) - hy) * ak + sl * .03, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) - sl * .08);
+      vm.root.rotation.set(RP.kick * .08 + (W && W.adsTilt || 0) * ak, slash >= 0 ? .9 - slash * 1.9 : 0, slash >= 0 ? -1.2 * sl : 0);
       fpArmsPose(kp.team); renderer.clearDepth(); renderer.render(vmScene, vmCamera);
     }
     return;
@@ -3639,7 +3706,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #29)';
+const GAME_VERSION = '1.0 (10-12 #30)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3652,7 +3719,7 @@ function showMenu() {
       ${grpHtml('game', '게임 설정', '조작 · 감도 · 소리 · 화면', settingsHtml())}
     </div>
     ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요. 브라우저 설정을 바꾸기 싫다면 Windows용 <a href="https://github.com/Hany36/Hany36/releases/tag/desktop" target="_blank" style="color:inherit;text-decoration:underline">PC 버전(Jammini_FPS_1.0.exe)</a>이나 <a href="Jammini_FPS_1.0.bat" download style="color:inherit;text-decoration:underline">게임 전용 창 실행 파일</a>을 받아 실행해 보세요(평소 브라우저 설정은 그대로 두고, 게임에서만 그래픽카드를 써요).</p>` : ''}
-    <p style="margin:10px 0 0;text-align:center;font-size:13px"><a href="model-preview.html" target="_blank" style="color:inherit;opacity:.8">캐릭터 동작 미리보기 (엎드리기 · 쓰러지기 등)</a></p>
+    <p style="margin:10px 0 0;text-align:center;font-size:13px"><a href="model-preview.html" target="_blank" style="color:inherit;opacity:.8">캐릭터 동작 · 무기 미리보기</a> · <a href="https://github.com/Hany36/Hany36/blob/claude/jolly-pascal-dtmrqz/fps/ASSET_CREDITS.md" target="_blank" style="color:inherit;opacity:.8">에셋 출처 (모델 제작자 · 라이선스)</a></p>
     <p style="margin:6px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
   bindSliders();
   $('overlay').hidden = false;
@@ -4265,15 +4332,16 @@ function render(dt) {
     vm.root.visible = !dead && !(aiming && w.scope) && endK < .15;
     // aiming slides the weapon so its sight sits at the screen center
     vm.sprintK = (vm.sprintK || 0) + ((me.sprint && !ads ? 1 : 0) - (vm.sprintK || 0)) * Math.min(1, dt * 8);
-    const tx = ads ? 0 : .17 + bx - vm.sprintK * .05, ty = ads ? w.adsY : -.19 - by - vm.sprintK * .07, tz = ads ? w.adsZ : -.4;
+    const HP = w.hip || VM_HIP, tx = ads ? 0 : HP[0] + bx - vm.sprintK * .05, ty = ads ? w.adsY : HP[1] - by - vm.sprintK * .07, tz = ads ? w.adsZ : HP[2];
     vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * Math.min(1, dt * 18);
     vm.ay = vm.ay === undefined ? ty : vm.ay + (ty - vm.ay) * Math.min(1, dt * 18);
     vm.az = vm.az === undefined ? tz : vm.az + (tz - vm.az) * Math.min(1, dt * 18);
     const slash = vm.knifeT > 0 ? 1 - vm.knifeT / .25 : -1, sl = slash >= 0 ? Math.sin(slash * Math.PI) : 0;   // 0..1 progress of a knife swing
     vm.root.position.set(vm.ax + (slash >= 0 ? .14 - slash * .34 : 0), vm.ay - sw * .3 - rl * .12 + sl * .03, vm.az + vm.kick * (ads ? .02 : .05) - sl * .08);
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
-    vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - vm.sprintK * .12, vm.sprintK * .45 + (slash >= 0 ? .9 - slash * 1.9 : 0), rl * .3 + bolt * .2 + vm.sprintK * .2 + (slash >= 0 ? -1.2 * sl : 0));
-    vm.flash.position.set(0, .01, FLASH_Z[weapon] || -.6);
+    vm.tilt = (vm.tilt || 0) + ((ads ? w.adsTilt || 0 : 0) - (vm.tilt || 0)) * Math.min(1, dt * 18);
+    vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - vm.sprintK * .12 + vm.tilt, vm.sprintK * .45 + (slash >= 0 ? .9 - slash * 1.9 : 0), rl * .3 + bolt * .2 + vm.sprintK * .2 + (slash >= 0 ? -1.2 * sl : 0));
+    vm.flash.position.set(0, FLASH_Y[weapon] ?? .01, FLASH_Z[weapon] || -.6);
     shadowT += dt;
     if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
     renderer.clear();
@@ -4303,8 +4371,9 @@ async function boot() {
     $('card').innerHTML = `<h2>불러오는 중 문제가 생겼어요</h2><p class="err">${String(e && e.message || e)}</p>`; console.error(e); return;
   }
   if (touch) document.body.classList.add('ptr');
-  $('card').innerHTML = '<h2>불러오는 중…</h2><p class="keep">캐릭터 모델을 불러오고 있어요.</p>';
-  await loadCharacter();   // falls back to the built-in soldier if the model can't be loaded
+  $('card').innerHTML = '<h2>불러오는 중…</h2><p class="keep">캐릭터와 무기 모델을 불러오고 있어요.</p>';
+  await Promise.all([loadCharacter(), loadWeapons()]);   // without the files: the built-in block soldier and weapons
+  try { applyGunModels(); } catch (e) { console.error(e); }
   try { initFpArms(); } catch (e) { console.error(e); vm.arms = null; for (const m of vm.boxArms) m.visible = true; }
   setupMatch();
   showMenu();

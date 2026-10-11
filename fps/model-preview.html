@@ -51,7 +51,12 @@
 <script src="lib/GLTFLoader.js"></script>
 <script>
 // Plays every animation in the character file (assets/models/swat.glb) one at a time, outside the game.
-const MODELS = [['SWAT (게임 캐릭터)', 'assets/models/swat.glb'], ['예전 병사', 'assets/models/soldier.glb'], ['총 후보 (미적용)', 'assets/models/gun.glb']];
+const MODELS = [['SWAT (게임 캐릭터)', 'assets/models/swat.glb'], ['무기 7종 (게임 적용)', 'assets/models/weapons.glb'], ['예전 병사', 'assets/models/soldier.glb'], ['예전 총 후보 (미적용)', 'assets/models/gun.glb']];
+// weapons.glb holds every weapon at the same spot: stood one above another, side on, in the order below
+const WEAPON_ORDER = ['rifle', 'sniper', 'shotgun', 'smg', 'pistol', 'revolver', 'knife'];
+function layoutWeapons(root) {
+  WEAPON_ORDER.forEach((k, i) => { const o = root.getObjectByName(k); if (o) { o.rotation.y = Math.PI / 2; o.position.set(0, 1.9 - i * .3, 0); } });
+}
 // clip name -> [group, Korean name, where the game uses it]
 const LABELS = {
   Idle: ['서기 · 이동', '서 있기', '멈춰 있을 때'], Walk: ['서기 · 이동', '걷기', '느리게 움직일 때 (정조준 등)'],
@@ -133,6 +138,7 @@ addEventListener('keydown', e => {
 $('models').innerHTML = MODELS.map(([n]) => `<button type="button" data-m="${n}">${n}</button>`).join('');
 const loader = new THREE.GLTFLoader();
 Promise.all(MODELS.map(([n, url]) => new Promise(res => loader.load(url, g => {
+  if (/weapons\.glb/.test(url)) layoutWeapons(g.scene);
   g.info = describe(n, g, new THREE.Box3().setFromObject(g.scene).getSize(new THREE.Vector3())); loaded[n] = g; res();
 }, undefined, e => { errors[n] = '불러오기 실패: ' + (e && e.message || e); res(); })))).then(() => {
   const q = new URLSearchParams(location.search);
