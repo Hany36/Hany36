@@ -6,6 +6,9 @@ const path = require('path');
 const GAME_URL = 'https://hany36.github.io/Hany36/fps/';
 app.commandLine.appendSwitch('ignore-gpu-blocklist');          // use the GPU even where Chromium would play safe
 app.commandLine.appendSwitch('force_high_performance_gpu');    // laptops: the NVIDIA/AMD card, not the built-in one
+// sound plays from the game window's own process (not a separate audio process), so recorders that capture
+// only the game's sound (Xbox Game Bar: Win + Alt + R) pick it up
+app.commandLine.appendSwitch('disable-features', 'AudioServiceOutOfProcess');
 // the frame rate follows the monitor (vsync): 165 Hz screen → 165 FPS, evenly paced
 
 function createWindow() {
