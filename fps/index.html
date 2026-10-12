@@ -1610,9 +1610,9 @@ const GUN_MODELS = {
   rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], muzzle: [.12, -.555], optic: 'sightCTS', mount: [.158, .07] },   // on the upper receiver's rail
   pistol:   { r: [0, -.025, .065], l: [-.02, -.035, .045], sight: .072, muzzle: [.045, -.11], hip: [.15, -.14, -.36] },
   sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], sight: .095, muzzle: [0, -.6] },
-  shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], sight: .105, muzzle: [.07, -.51] },
+  shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], muzzle: [.07, -.51], optic: 'sightReflex', mount: [.0975, -.06] },   // on the flat receiver top, ahead of the rear sight
   smg:      { r: [.0035, -.035, .1], l: [.0035, .045, -.17], muzzle: [.066, -.305], optic: 'sightReflex', mount: [.1125, -.02, .0035] },   // MP5 with a short rail on the receiver
-  revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .066, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
+  revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .0725, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },   // rear and front sight tops
   knife:    { r: [0, 0, .1], l: null },
 };
 // red dot sights (nodes in weapons.glb, glass forward, base on y = 0, base centered): the middle of the glass, where the dot shows
@@ -2013,8 +2013,9 @@ function applyGunModels() {
     const off = new THREE.Vector3(grip.rh[0] - spec.r[0] - (spec.sx || 0), grip.rh[1] - spec.r[1], grip.rh[2] - spec.r[2]), m = src.clone();
     m.position.copy(off); g.add(m);
     if (spec.dot) {   // the glowing red dot in the sight's lens, shown while aiming
-      const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), depthTest: false, depthWrite: false, transparent: true, opacity: 0, toneMapped: false }));
-      d.scale.setScalar(.0075); d.position.set(spec.dot[0] + off.x, spec.dot[1] + off.y, spec.dot[2] + off.z); d.renderOrder = 3; g.add(d); g.userData.reticle = d;
+      // the same small size on screen whatever the sight's distance from the eye (about 0.5% of the screen height)
+      const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), depthTest: false, depthWrite: false, transparent: true, opacity: 0, toneMapped: false, sizeAttenuation: false }));
+      d.scale.setScalar(.0055); d.position.set(spec.dot[0] + off.x, spec.dot[1] + off.y, spec.dot[2] + off.z); d.renderOrder = 3; g.add(d); g.userData.reticle = d;
     }
     g.userData.grip = Object.assign({}, grip, { lh: spec.l ? [spec.l[0] + off.x, spec.l[1] + off.y, spec.l[2] + off.z] : null });
     if (WEAPONS[k] && !WEAPONS[k].scope && spec.sight) WEAPONS[k].adsY = -(spec.sight + off.y);
@@ -2042,7 +2043,7 @@ let DOT_TEX = null;
 function dotTexture() {   // a soft red point of light
   if (DOT_TEX) return DOT_TEX;
   const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
-  gr.addColorStop(0, 'rgba(255,90,70,1)'); gr.addColorStop(.42, 'rgba(255,20,10,1)'); gr.addColorStop(.7, 'rgba(230,0,0,.4)'); gr.addColorStop(1, 'rgba(200,0,0,0)');
+  gr.addColorStop(0, 'rgba(255,45,30,1)'); gr.addColorStop(.5, 'rgba(255,20,10,1)'); gr.addColorStop(.75, 'rgba(230,0,0,.45)'); gr.addColorStop(1, 'rgba(200,0,0,0)');
   x.fillStyle = gr; x.fillRect(0, 0, 32, 32); return (DOT_TEX = new THREE.CanvasTexture(c));
 }
 // the red dot fades in as the weapon comes up to the eye
@@ -2168,7 +2169,7 @@ function audioInit() {
 }
 // ---- footsteps: everyone walking on the ground makes steps you hear from where they are (3D panning);
 // crouching is nearly silent, sprinting loud. Sand sounds softer and duller than concrete.
-const STEP = { len: { prone: .6, crouch: .55, walk: .78, run: 1.0 }, vol: { prone: .05, crouch: .1, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
+const STEP = { len: { prone: .6, crouch: .55, walk: .78, run: 2.0 }, vol: { prone: .05, crouch: .1, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
 function setPanner(pn, x, y, z) { if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = y; pn.positionZ.value = z; } else pn.setPosition(x, y, z); }
 function footstep(a, vol, land) {
   if (!AC || settings.volume <= 0 || vol < .02) return;
@@ -3739,7 +3740,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #35)';
+const GAME_VERSION = '1.0 (10-12 #36)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;

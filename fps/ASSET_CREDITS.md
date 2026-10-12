@@ -66,7 +66,7 @@
 | 게임에서 | 모델 (원본 파일) | 제작자 | 모델 페이지 | 라이선스 |
 |---|---|---|---|---|
 | 소총(M4) 레일 위 | Crimson Trace CTS-1550 Red Dot Sight (`source/sight-cts.glb`, 받은 이름 `crimson_trace_cts-1550_red_dot_sight.glb`) | Orshia 3D (https://sketchfab.com/TalhaHelvaci) | https://sketchfab.com/3d-models/crimson-trace-cts-1550-red-dot-sight-a29f7326e13c454a9de1a027c74dd8ae | CC BY 4.0 |
-| 기관단총(MP5) 레일 위 | FPS Red Dot Sight (Game Model) (`source/sight-reflex.glb`, 받은 이름 `fps_red_dot_sight_game_model.glb`) | Michael Makivic (https://sketchfab.com/makivic) | https://sketchfab.com/3d-models/fps-red-dot-sight-game-model-0cf999d9363940c2b149dcd80c448554 | CC BY 4.0 |
+| 기관단총(MP5) 레일 위, 산탄총 몸통 위 | FPS Red Dot Sight (Game Model) (`source/sight-reflex.glb`, 받은 이름 `fps_red_dot_sight_game_model.glb`) | Michael Makivic (https://sketchfab.com/makivic) | https://sketchfab.com/3d-models/fps-red-dot-sight-game-model-0cf999d9363940c2b149dcd80c448554 | CC BY 4.0 |
 
 **파일 검사 결과**
 
@@ -81,7 +81,7 @@
 **바꾼 내용**
 - 유리(가장 높은 쪽)가 앞(-z)을 보게 돌리고 바닥을 y = 0, 가운데 맞춤. 길이 CTS 0.065, FPS Red Dot 0.095(게임 단위). 텍스처 축소(색 1024, 나머지 512, 유리는 투명도를 살려 PNG).
 - CTS의 빨간 점 부품(Reddot_M, 삼각형 8개)은 뺌. 정조준할 때 렌즈 가운데 보이는 빨간 점은 게임이 그리는 빛 효과 하나만 씀(두 개가 겹쳐 보이지 않게).
-- 게임 안에서: CTS는 M4 위쪽 레일에 마운트 바닥을 붙이고, FPS Red Dot은 MP5 위쪽 레일에 클램프를 붙임. 유리는 뒤가 잘 보이도록 더 투명하게(불투명도 0.45배).
+- 게임 안에서: CTS는 M4 위쪽 레일에 마운트 바닥을 붙이고, FPS Red Dot은 MP5 위쪽 레일과 산탄총 몸통의 평평한 윗면(뒤쪽 가늠자 앞)에 클램프를 붙임. 유리는 뒤가 잘 보이도록 더 투명하게(불투명도 0.45배).
 - 이전에 쓰던 Reflex Sight | LowPoly(VyrianStudios)는 2026-10-12에 이 두 조준기로 바꾸면서 저장소에서 지웠어요.
 
 ## 3. 함께 넣은 코드
