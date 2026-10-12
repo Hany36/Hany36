@@ -1042,7 +1042,7 @@ function lineClear(a, b) {
 const WEAPONS = {
   rifle:  { n: '소총', mag: 30, res: 120, rate: .095, auto: true, dmg: 28, head: 3.6, spread: .012, aimSpread: .003, kick: .011, reload: 2.1, range: 120, fov: 52, snd: 1, adsY: -.112, adsZ: -.31 },
   pistol: { n: '권총', mag: 12, res: 48, rate: .16, auto: false, dmg: 34, head: 3, spread: .016, aimSpread: .005, kick: .02, reload: 1.5, range: 80, fov: 62, snd: .7, adsY: -.07, adsZ: -.3 },
-  sniper: { mob: .92, n: '저격총', mag: 5, res: 20, rate: 1.25, auto: false, dmg: 110, head: 2, spread: .09, aimSpread: 0, kick: .05, reload: 2.8, range: 200, fov: 16, scope: true, snd: 1.6 },
+  sniper: { mob: .92, n: '저격총', mag: 5, res: 20, rate: 1.25, auto: false, dmg: 110, head: 2, spread: .09, aimSpread: 0, kick: .05, reload: 2.8, range: 200, fov: 16, scope: true, snd: 1.6, adsY: -.1, adsZ: -.26 },
   smg:    { mob: 1.08, moveK: .5, n: '기관단총', mag: 32, res: 160, rate: .066, auto: true, dmg: 19, head: 3, spread: .016, aimSpread: .006, kick: .006, reload: 1.7, range: 70, fov: 60, snd: .75, adsY: -.073, adsZ: -.3 },
   shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 23, pellets: 9, falloff: true, head: 1.6, spread: .033, aimSpread: .024, kick: .045, reload: 2.6, range: 40, fov: 56, snd: 1.4, adsY: -.07, adsZ: -.34 },
   revolver: { n: '리볼버', mag: 6, res: 30, rate: .42, auto: false, dmg: 52, head: 2.6, spread: .012, aimSpread: .003, kick: .055, reload: 2.2, range: 90, fov: 60, snd: 1.15, adsY: -.072, adsZ: -.3 },
@@ -1609,7 +1609,8 @@ const GUN_MODELS = {
   url: 'assets/models/weapons.glb',
   rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], muzzle: [.12, -.555], optic: 'sightCTS', mount: [.158, .07] },   // on the upper receiver's rail
   pistol:   { r: [0, -.025, .065], l: [-.02, -.035, .045], sight: .072, muzzle: [.045, -.11], hip: [.15, -.14, -.36] },
-  sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], sight: .095, muzzle: [0, -.6] },
+  // scope: the scope's middle line [x, y] and the back end of its eyepiece (z); aiming brings the eyepiece up to the eye
+  sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], scope: [-.0122, .0989, .289], muzzle: [0, -.6] },
   // the sight sits on the back of the receiver, behind the rear sight (which peeks up at the bottom of its glass)
   shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], muzzle: [.07, -.51], optic: 'sightReflex', mount: [.097, .23], adsZ: -.26, dotSize: .0075 },
   smg:      { r: [.0035, -.035, .1], l: [.0035, .045, -.17], muzzle: [.066, -.305], optic: 'sightReflex', mount: [.1125, -.02, .0035] },   // MP5 with a short rail on the receiver
@@ -2025,6 +2026,7 @@ function applyGunModels() {
     if (spec.muzzle) { FLASH_Z[k] = spec.muzzle[1] + off.z; FLASH_Y[k] = spec.muzzle[0] + off.y; }
     if (WEAPONS[k] && spec.hip) WEAPONS[k].hip = spec.hip;
     if (WEAPONS[k] && spec.adsZ) WEAPONS[k].adsZ = spec.adsZ;
+    if (WEAPONS[k] && spec.scope) { const [x, y, z] = spec.scope; Object.assign(WEAPONS[k], { adsX: -(x + off.x), adsY: -(y + off.y), adsZ: -SCOPE_EYE - (z + off.z) }); }
     if (WEAPONS[k] && spec.sightLine) {   // tilt the gun while aiming so the line over the rear sight to the front sight is level, rear sight on the eye line
       const [[zr, yr], [zf, yf]] = spec.sightLine, th = Math.atan2(yr - yf, zr - zf), py = yr + off.y, pz = zr + off.z;
       WEAPONS[k].adsTilt = th; WEAPONS[k].adsY = -(py * Math.cos(th) - pz * Math.sin(th)); WEAPONS[k].adsZ = -spec.eye - (py * Math.sin(th) + pz * Math.cos(th));
@@ -2032,6 +2034,9 @@ function applyGunModels() {
   }
 }
 const VM_HIP = [.17, -.19, -.4];
+// a scoped rifle first comes up to the eye (eyepiece SCOPE_EYE in front of it); the scope view takes over once it's nearly there
+const SCOPE_EYE = .09, SCOPE_IN = .9;
+function scopedIn() { return aiming && !!WEAPONS[weapon].scope && (vm.adsK || 0) > SCOPE_IN; }
 // a knife slash, inside to outside: the hand sweeps from across the body (left) out to the right with the tip and the edge leading.
 // s: 0..1 progress (-1: no swing). Offsets for the first-person weapon's position and rotation
 // The swing takes the first 70% of SLASH_TIME, then the hand eases back to where it rests.
@@ -2544,7 +2549,11 @@ function updatePlayer(dt) {
     me.vx = slideDir[0] * v; me.vz = slideDir[1] * v;
   } else { me.vx += (tvx - me.vx) * k; me.vz += (tvz - me.vz) * k; }
   me.vy -= 18 * dt;
-  if ((keys.Space || jumpHeld) && me.ground && !me.prone && proneT <= 0 && !spaceBlock) { me.vy = 6.3; me.ground = false; }
+  if ((keys.Space || jumpHeld) && me.ground && !me.prone && proneT <= 0 && !spaceBlock) {
+    // a jump stands you up out of a crouch (if there's room overhead); a C still held down doesn't crouch you again until it's let go
+    if (me.crouch && slideT <= 0 && !collidesAt(me.x, me.y, me.z, 1.75)) { me.crouch = false; me.slid = false; crouchToggle = false; touchCrouch = false; if (keys.KeyC) slideHoldC = true; }
+    me.vy = 6.3; me.ground = false;
+  }
   const h = me.prone ? .6 : me.crouch ? 1.25 : 1.75;
   moveAxis(me, 'x', me.vx * dt, h); moveAxis(me, 'z', me.vz * dt, h);
   const hitY = moveAxis(me, 'y', me.vy * dt, h);
@@ -2580,7 +2589,8 @@ function aimDir(spread) {
 function currentSpread() {
   const w = WEAPONS[weapon]; if (w.melee) return 0;
   const moving = Math.hypot(me.vx, me.vz) / 5.4;
-  let s = (aiming ? w.aimSpread : w.spread) + spreadBoost + moving * (aiming ? .01 : .03) * (w.moveK || 1);
+  const aimed = aiming && (!w.scope || scopedIn());   // a scoped rifle on its way up to the eye still shoots like from the hip
+  let s = (aimed ? w.aimSpread : w.spread) + spreadBoost + moving * (aimed ? .01 : .03) * (w.moveK || 1);
   if (!me.ground) s += .05;
   if (me.prone) s *= .5; else if (me.crouch) s *= .7;
   return s;
@@ -2618,7 +2628,7 @@ function shoot() {
   me.yaw += (Math.random() - .5) * w.kick * .5;
   spreadBoost = Math.min(.06, spreadBoost + w.kick * .4);
   recoilP = Math.min(.15, recoilP + w.kick * 2);
-  vm.kick = 1; vm.flash.visible = !(aiming && w.scope); vm.flashT = .04;
+  vm.kick = 1; vm.flash.visible = !scopedIn(); vm.flashT = .04;
   sfx(weapon === 'sniper' || weapon === 'shotgun' ? 'snipe' : 'shot', w.snd);
   if (weapon === 'sniper') { vm.boltT = .9; if (settings.aimMode === 'toggle') setAim(false); }
   if (a.mag === 0 && a.res > 0) setTimeout(() => { if (!me.dead && weapon !== 'knife') startReload(); }, 250);
@@ -3029,7 +3039,7 @@ function hud(dt) {
   $('ammoRes').textContent = w.melee ? '' : `/ ${a.res}`;
   $('wName').textContent = `${w.n} · 수류탄 ${nades}`;
   $('reloadMsg').hidden = !(reloadT > 0);
-  $('scope').hidden = !(aiming && w.scope && !me.dead);
+  $('scope').hidden = !(scopedIn() && !me.dead);
   // hip fire: spread lines (sniper shows only the center dot); aiming uses the weapon's own sights (the red dot lives in the reflex sight)
   const cross = $('cross');
   cross.style.visibility = aiming || me.dead ? 'hidden' : 'visible';
@@ -3103,7 +3113,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 function look(dx, dy, k) {
   const w = WEAPONS[weapon];
-  const zoomK = aiming ? (w.scope ? settings.scopeSens * .35 : settings.adsSens * .7) : 1;   // scope and iron-sight sensitivities are separate
+  const zoomK = aiming ? (scopedIn() ? settings.scopeSens * .35 : settings.adsSens * .7) : 1;   // scope and iron-sight sensitivities are separate
   me.yaw -= dx * k * settings.sens * zoomK;
   const p = me.pitch - dy * k * settings.sens * zoomK;
   // lying down the view can't tilt past PRONE_PITCH (if it is still easing in, it may only come back toward the range)
@@ -3623,12 +3633,12 @@ function renderReplay(dt) {
     // the weapon in hand at this moment of the recording (switches show up), else the one that made the kill
     const key = kp.weapon && WEAPONS[kp.weapon] ? kp.weapon : RP.kind === 'nade' ? null : (WKEYS.find(w => WEAPONS[w].n === RP.kill.w) || 'rifle');
     if (key !== RP.lastKey) { RP.lastKey = key; RP.adsK = 0; }
-    // aiming as recorded: iron sights / red dot pull the gun to the eye, a sniper looks through the scope
+    // aiming as recorded: iron sights / red dot pull the gun to the eye, a sniper brings the scope up and then looks through it
     const W = key && WEAPONS[key], adsOn = !!(kp.aiming && W && !W.melee);
-    RP.adsK = (RP.adsK || 0) + ((adsOn ? 1 : 0) - (RP.adsK || 0)) * Math.min(1, dt * 14);
-    const scoped = adsOn && W.scope && RP.adsK > .6;
+    RP.adsK = (RP.adsK || 0) + ((adsOn ? 1 : 0) - (RP.adsK || 0)) * Math.min(1, dt * (W && W.scope ? 10 : 14));
+    const scoped = adsOn && W.scope && RP.adsK > SCOPE_IN;
     $('kcScope').hidden = !scoped;
-    camera.fov = 72 + ((W && W.fov ? W.fov : 72) - 72) * RP.adsK; camera.updateProjectionMatrix();
+    camera.fov = scoped ? W.fov : 72 + ((W && W.fov && !W.scope ? W.fov : 62) - 72) * RP.adsK; camera.updateProjectionMatrix();
     shadowT += dt; if (shadowT >= 1 / 62) { renderer.shadowMap.needsUpdate = true; shadowT = 0; }
     renderer.clear(); renderer.render(scene, camera);
     if (scoped) return;
@@ -3639,7 +3649,7 @@ function renderReplay(dt) {
       RP.bob = (RP.bob || 0) + dt * sp * 9;
       vm.root.visible = true; vm.flash.visible = RP.kick > .7;
       vm.flash.position.set(0, FLASH_Y[key] ?? .01, FLASH_Z[key] || -.6);
-      const HP = (W && W.hip) || VM_HIP, ak = W.scope ? 0 : RP.adsK, hx = HP[0] + Math.cos(RP.bob) * .01 * sp, hy = HP[1] - Math.abs(Math.sin(RP.bob)) * .012 * sp;
+      const HP = (W && W.hip) || VM_HIP, ak = RP.adsK, hx = HP[0] + Math.cos(RP.bob) * .01 * sp, hy = HP[1] - Math.abs(Math.sin(RP.bob)) * .012 * sp;
       vm.root.position.set(hx + ((W.adsX || 0) - hx) * ak + SP.x, hy + ((W.adsY ?? hy) - hy) * ak + SP.y, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) + SP.z);
       vm.root.rotation.set(RP.kick * .08 + (W && W.adsTilt || 0) * ak + SP.rx, SP.ry, SP.rz);
       setReticle(key, Math.max(0, ak * 1.4 - .4));
@@ -3743,7 +3753,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #37)';
+const GAME_VERSION = '1.0 (10-12 #38)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4355,29 +4365,31 @@ function render(dt) {
       camera.rotation.set(me.pitch + (-.75 - me.pitch) * endK, ry, (dead ? .6 : 0) * (1 - endK), 'YXZ');
     }
     const w = WEAPONS[weapon];
-    const targetFov = endK > 0 ? 70 : aiming && !w.melee ? w.fov : 75 + (me.sprint ? 5 : 0) + (slideT > 0 ? 8 : 0);
+    const targetFov = endK > 0 ? 70 : aiming && !w.melee ? (w.scope && !scopedIn() ? 62 : w.fov) : 75 + (me.sprint ? 5 : 0) + (slideT > 0 ? 8 : 0);
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14);
     camera.updateProjectionMatrix();
     vm.kick = Math.max(0, (vm.kick || 0) - dt * 10);
     vm.knifeT = Math.max(0, (vm.knifeT || 0) - dt);
     vm.boltT = Math.max(0, (vm.boltT || 0) - dt);
     vm.flashT = (vm.flashT || 0) - dt; if (vm.flashT <= 0) vm.flash.visible = false;
-    const ads = aiming && !w.scope && !w.melee;
+    const ads = aiming && !w.melee;   // a scoped rifle also comes up to the eye before the scope view
     const sw = switchT > 0 ? switchT / .35 : 0, rl = reloadT > 0 ? Math.sin(Math.min(1, 1 - reloadT / w.reload) * Math.PI) : 0;
     const mv = Math.min(1, Math.hypot(me.vx, me.vz) / 5);
     const bx = Math.cos(bob) * .012 * mv, by = Math.abs(Math.sin(bob)) * .012 * mv;
-    vm.root.visible = !dead && !(aiming && w.scope) && endK < .15;
+    // a scoped rifle comes up a little slower than iron sights, so bringing it to the eye can be seen
+    vm.adsK = (vm.adsK || 0) + ((ads ? 1 : 0) - (vm.adsK || 0)) * Math.min(1, dt * (w.scope ? 10 : 14)); setReticle(weapon, Math.max(0, vm.adsK * 1.4 - .4));
+    vm.root.visible = !dead && !scopedIn() && endK < .15;
     // aiming slides the weapon so its sight sits at the screen center
     vm.sprintK = (vm.sprintK || 0) + ((me.sprint && !ads ? 1 : 0) - (vm.sprintK || 0)) * Math.min(1, dt * 8);
     const HP = w.hip || VM_HIP, tx = ads ? w.adsX || 0 : HP[0] + bx - vm.sprintK * .05, ty = ads ? w.adsY : HP[1] - by - vm.sprintK * .07, tz = ads ? w.adsZ : HP[2];
-    vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * Math.min(1, dt * 18);
-    vm.ay = vm.ay === undefined ? ty : vm.ay + (ty - vm.ay) * Math.min(1, dt * 18);
-    vm.az = vm.az === undefined ? tz : vm.az + (tz - vm.az) * Math.min(1, dt * 18);
+    const ar = Math.min(1, dt * (w.scope ? 11 : 18));
+    vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * ar;
+    vm.ay = vm.ay === undefined ? ty : vm.ay + (ty - vm.ay) * ar;
+    vm.az = vm.az === undefined ? tz : vm.az + (tz - vm.az) * ar;
     const SP = slashPose(vm.knifeT > 0 ? 1 - vm.knifeT / SLASH_TIME : -1);   // a knife swing in progress
     vm.root.position.set(vm.ax + SP.x, vm.ay - sw * .3 - rl * .12 + SP.y, vm.az + vm.kick * (ads ? .02 : .05) + SP.z);
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
     vm.tilt = (vm.tilt || 0) + ((ads ? w.adsTilt || 0 : 0) - (vm.tilt || 0)) * Math.min(1, dt * 18);
-    vm.adsK = (vm.adsK || 0) + ((ads ? 1 : 0) - (vm.adsK || 0)) * Math.min(1, dt * 14); setReticle(weapon, Math.max(0, vm.adsK * 1.4 - .4));
     vm.root.rotation.set(vm.kick * (ads ? .02 : .08) + rl * .6 + bolt * .25 - vm.sprintK * .12 + vm.tilt + SP.rx, vm.sprintK * .45 + SP.ry, rl * .3 + bolt * .2 + vm.sprintK * .2 + SP.rz);
     vm.flash.position.set(0, FLASH_Y[weapon] ?? .01, FLASH_Z[weapon] || -.6);
     shadowT += dt;
