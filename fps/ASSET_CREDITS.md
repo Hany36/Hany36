@@ -1,6 +1,6 @@
 # 외부 에셋 출처와 이용 조건 (Jammini_FPS_1.0)
 
-확인일: 2026-10-09 (SWAT 동작 추가분은 2026-10-12, 무기 7종과 조준기는 2026-10-11). 예전에 미리보기용으로 넣었던 three.js Soldier.glb와 MRTK Gun.glb는 2026-10-11에 저장소에서 지웠어요. 저장소의 코드 라이선스를 모델에 자동으로 적용하지 않았어요. 모델마다 따로 찾은 근거만 적었어요.
+확인일: 2026-10-09 (SWAT 동작 추가분은 2026-10-12, 무기 7종은 2026-10-11, 레드닷 조준기는 2026-10-12). 예전에 미리보기용으로 넣었던 three.js Soldier.glb와 MRTK Gun.glb는 2026-10-11에 저장소에서 지웠어요. 저장소의 코드 라이선스를 모델에 자동으로 적용하지 않았어요. 모델마다 따로 찾은 근거만 적었어요.
 
 ## 0. 캐릭터: `assets/models/swat.glb` (현재 게임에 적용함)
 
@@ -55,20 +55,32 @@
 - 같은 재질을 쓰는 부품은 하나로 합침(저격총 42개 → 1개 등, 그리기 횟수 줄이기).
 - 텍스처를 줄임: 색 1024, 나머지(노멀·거칠기·금속·AO·발광) 512, 재질이 많은 소총은 모두 512. JPEG로 다시 저장. 7개 합계 23.6MB → 7.2MB.
 - 칼: 칼집(LP_Leather_Tris 부품)을 뺌.
-- 게임 안에서: 소총과 기관단총 위에 리플렉스 사이트(아래 2번)를 얹음(M4 모델에는 조준기가 없음). 손 위치·조준선·총구 위치는 각 모델 위에서 직접 재서 `index.html`의 `GUN_MODELS`에 적음.
+- 게임 안에서: 소총과 기관단총 위에 레드닷 조준기(아래 2번)를 얹음(M4 모델에는 조준기가 없음). 손 위치·조준선·총구 위치는 각 모델 위에서 직접 재서 `index.html`의 `GUN_MODELS`에 적음.
 
-## 2. 조준기: 리플렉스(레드닷) 사이트 (`weapons.glb` 안의 `sight`, 게임에 적용함)
+## 2. 레드닷 조준기 2종 (`weapons.glb` 안의 `sightCTS`·`sightReflex`, 게임에 적용함)
 
-| 항목 | 내용 |
-|---|---|
-| 모델 | Reflex Sight \| LowPoly — 제작자 VyrianStudios (https://sketchfab.com/vynatic) |
-| 모델 페이지 | https://sketchfab.com/3d-models/reflex-sight-lowpoly-74be2da3f43747139d46d8af3fdd2ee3 |
-| 라이선스 | CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/) |
-| 근거 | 저장소 주인이 Sketchfab에서 받아 2026-10-11 채팅으로 보낸 GLB 파일 안의 Sketchfab 정보(`asset.extras`: 제목·제작자·라이선스·원본 주소). 모델 페이지는 이 작업 환경에서 열 수 없어 직접 확인하지 못했어요 |
-| 원본 파일 | `assets/models/source/sight-reddot.glb` (91,108 바이트, 받은 파일 이름 `reflex_sight__lowpoly.glb`) |
-| 파일 검사 | glTF 2.0 바이너리(Sketchfab-12.68.0), 필수 확장 없음, 메시 1개, 재질 1개, 텍스처 512² 1장(PNG 3,694 바이트), 삼각형 1,302개(부품 하나라 이름으로 구분 불가), 애니메이션 없음, 손 없음 |
-| bounding box | 4.083 × 2.815 × 4.725 (파일 단위, 파일 안에서 비스듬히 놓여 있음). 실제 크기 미확인 |
-| 바꾼 내용 | 렌즈 테(가장 높은 쪽)가 앞(-z)을 보게 돌리고 바닥을 y = 0에 맞춤, 길이 0.1(게임 단위)로 맞춤. 게임 안에서 소총(M4) 레일 위와 기관단총(MP5) 몸통 위에 얹음(렌즈 테 가운데가 총 가운데 오도록 옆으로 0.55cm 옮김). 정조준할 때 렌즈 가운데에 보이는 빨간 점은 모델이 아니라 게임이 그리는 빛 효과. 예전 블록 레드닷은 모델을 못 불러올 때만 씀 |
+저장소 주인이 Sketchfab에서 받아 2026-10-12 채팅으로 보낸 GLB예요. 라이선스 근거는 각 파일 안의 Sketchfab 정보(`asset.extras`)예요. 이 작업 환경에서는 sketchfab.com에 접속할 수 없어 모델 페이지는 직접 열어 보지 못했어요.
+
+| 게임에서 | 모델 (원본 파일) | 제작자 | 모델 페이지 | 라이선스 |
+|---|---|---|---|---|
+| 소총(M4) 레일 위 | Crimson Trace CTS-1550 Red Dot Sight (`source/sight-cts.glb`, 받은 이름 `crimson_trace_cts-1550_red_dot_sight.glb`) | Orshia 3D (https://sketchfab.com/TalhaHelvaci) | https://sketchfab.com/3d-models/crimson-trace-cts-1550-red-dot-sight-a29f7326e13c454a9de1a027c74dd8ae | CC BY 4.0 |
+| 기관단총(MP5) 위 | FPS Red Dot Sight (Game Model) (`source/sight-reflex.glb`, 받은 이름 `fps_red_dot_sight_game_model.glb`) | Michael Makivic (https://sketchfab.com/makivic) | https://sketchfab.com/3d-models/fps-red-dot-sight-game-model-0cf999d9363940c2b149dcd80c448554 | CC BY 4.0 |
+
+**파일 검사 결과**
+
+| 모델 | 크기·형식 | 메시 / 재질 / 텍스처 | 삼각형 | bounding box (파일 단위) | 실제 크기 |
+|---|---|---|---|---|---|
+| CTS-1550 | 6,740,592 B, glTF 2.0 (Sketchfab-14.1.2) | 4 / 4 (유리·빨간 점은 반투명) / PNG 13장(1024²·512²) | 6,416: 조준기 몸체 2,936, 레일 마운트 2,828, 유리 644, 빨간 점 8 | 0.026 × 0.032 × 0.051 | 미확인 (파일 값이 실제 제품 길이와 비슷해 보이지만 근거 문서 없음) |
+| FPS Red Dot Sight | 2,377,924 B, glTF 2.0 (Sketchfab-12.67.0) | 2 / 2 (유리 반투명) / PNG 3장(1024²) | 2,195: 몸체·레일 클램프 2,107, 유리 88 | 69.66 × 94.24 × 158.18 | 미확인 |
+
+- 둘 다 정상 glTF 바이너리, 필수 확장 없음, 애니메이션 없음.
+- 함께 받은 (PBR) Mini Red Dot(Eric Wallbank, CC BY 4.0)은 몸체까지 전부 반투명 재질 하나로 되어 있어 게임에서 비쳐 보일 수 있어서 쓰지 않았고 저장소에도 넣지 않았어요.
+
+**바꾼 내용**
+- 유리(가장 높은 쪽)가 앞(-z)을 보게 돌리고 바닥을 y = 0, 가운데 맞춤. 길이 CTS 0.065, FPS Red Dot 0.095(게임 단위). 텍스처 축소(색 1024, 나머지 512, 유리는 투명도를 살려 PNG).
+- CTS의 빨간 점 부품(Reddot_M, 삼각형 8개)은 뺌. 정조준할 때 렌즈 가운데 보이는 빨간 점은 게임이 그리는 빛 효과 하나만 씀(두 개가 겹쳐 보이지 않게).
+- 게임 안에서: CTS는 M4 위쪽 레일에 마운트 바닥을 붙이고, FPS Red Dot은 MP5 몸통 위(뒤쪽 가늠자 앞)에 얹음. 유리는 뒤가 잘 보이도록 더 투명하게(불투명도 0.45배).
+- 이전에 쓰던 Reflex Sight | LowPoly(VyrianStudios)는 2026-10-12에 이 두 조준기로 바꾸면서 저장소에서 지웠어요.
 
 ## 3. 함께 넣은 코드
 

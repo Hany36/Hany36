@@ -1601,34 +1601,37 @@ const CHARACTER = {
 };
 // weapon models: assets/models/weapons.glb, made from the Sketchfab files in assets/models/source (CC BY 4.0, see ASSET_CREDITS.md).
 // Each one points its barrel at -z, centered, as long as the game's old block weapon. Spots on each model (meters, its own space):
-// r: right hand on the grip, l: left hand (null: one-handed), sight: height of the sight line, muzzle: [y, z], mount: [y, z] where the reflex sight sits;
+// r: right hand on the grip, l: left hand (null: one-handed), sight: height of the sight line, muzzle: [y, z],
+// optic + mount: which red dot sight (SIGHTS) sits on the weapon and where its base goes ([y, z]: rail top, middle of the base);
 // sightLine: [[z, y] rear, [z, y] front] when the sights are not level with the barrel; eye: how far the rear sight sits ahead of the eye when aiming;
 // sx: how far left (-) of the model's middle the sights are; hip: where the weapon sits in first person when not aiming, if not the usual
 const GUN_MODELS = {
   url: 'assets/models/weapons.glb',
-  rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], muzzle: [.12, -.555], mount: [.1586, .06] },   // on the upper receiver's rail
+  rifle:    { r: [0, -.03, .19], l: [0, .12, -.25], muzzle: [.12, -.555], optic: 'sightCTS', mount: [.158, .07] },   // on the upper receiver's rail
   pistol:   { r: [0, -.025, .065], l: [-.02, -.035, .045], sight: .072, muzzle: [.045, -.11], hip: [.15, -.14, -.36] },
   sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], sight: .095, muzzle: [0, -.6] },
   shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], sight: .105, muzzle: [.07, -.51] },
-  smg:      { r: [0, -.035, .085], l: [0, .05, -.22], muzzle: [.05, -.34], mount: [.122, -.06] },   // on the receiver, ahead of the rear sight drum
+  smg:      { r: [0, -.035, .085], l: [0, .05, -.22], muzzle: [.05, -.34], optic: 'sightReflex', mount: [.117, -.06] },   // on the receiver, ahead of the rear sight drum (it sits high enough to see over it)
   revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .066, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
   knife:    { r: [0, 0, .1], l: null },
 };
-// the reflex sight (node 'sight' in weapons.glb, base on y = 0): the middle of its lens hoop, where the red dot shows
-const SIGHT = { dot: [-.0055, .0432, -.042] };
+// red dot sights (nodes in weapons.glb, glass forward, base on y = 0, base centered): the middle of the glass, where the dot shows
+const SIGHTS = { sightCTS: { dot: [-.0001, .0238, -.0265] }, sightReflex: { dot: [.0035, .0421, -.0351] } };
 const CHAR = { gltf: null, scale: 1, clips: [], teamMat: {}, guns: null };
 function loadWeapons() {
   return new Promise(resolve => {
     if (!THREE.GLTFLoader || location.protocol === 'file:') { resolve(false); return; }
     const done = ok => { clearTimeout(timer); resolve(ok); }, timer = setTimeout(() => done(false), 20000);
     new THREE.GLTFLoader().load(GUN_MODELS.url, g => {
-      const guns = {}, sight = g.scene.getObjectByName('sight');
+      const guns = {};
       for (const k in GUN_MODELS) {
         const o = k !== 'url' && g.scene.getObjectByName(k); if (!o) continue;
-        const sp = GUN_MODELS[k];
-        if (sp.mount && sight) {   // the reflex sight on its mount, lens hoop over the barrel; aiming looks through the hoop
-          const s = sight.clone(); s.position.set(-SIGHT.dot[0], sp.mount[0], sp.mount[1]); o.add(s);
-          sp.sight = sp.mount[0] + SIGHT.dot[1]; sp.dot = [0, sp.sight, sp.mount[1] + SIGHT.dot[2]];
+        const sp = GUN_MODELS[k], optic = sp.optic && g.scene.getObjectByName(sp.optic), D = sp.optic && SIGHTS[sp.optic].dot;
+        if (optic) {   // the red dot sight's base on the rail, centered over the barrel; aiming looks through the middle of its glass
+          const s = optic.clone(); s.position.set(0, sp.mount[0], sp.mount[1]); o.add(s);
+          // its tinted glass: lighter, so targets behind it stay easy to see (and it never hides what's behind it in depth)
+          s.traverse(m => { if (m.isMesh && m.material.transparent && !m.material._glass) { m.material._glass = true; m.material.opacity *= .45; m.material.depthWrite = false; } });
+          sp.sight = sp.mount[0] + D[1]; sp.dot = [D[0], sp.sight, sp.mount[1] + D[2]];
         }
         o.traverse(m => { if (m.isMesh) m.castShadow = true; });
         guns[k] = o;
@@ -2015,6 +2018,7 @@ function applyGunModels() {
     }
     g.userData.grip = Object.assign({}, grip, { lh: spec.l ? [spec.l[0] + off.x, spec.l[1] + off.y, spec.l[2] + off.z] : null });
     if (WEAPONS[k] && !WEAPONS[k].scope && spec.sight) WEAPONS[k].adsY = -(spec.sight + off.y);
+    if (WEAPONS[k] && spec.dot) WEAPONS[k].adsX = -(spec.dot[0] + off.x);   // the glass's middle (a sight's glass can sit a little off its base's middle)
     if (spec.muzzle) { FLASH_Z[k] = spec.muzzle[1] + off.z; FLASH_Y[k] = spec.muzzle[0] + off.y; }
     if (WEAPONS[k] && spec.hip) WEAPONS[k].hip = spec.hip;
     if (WEAPONS[k] && spec.sightLine) {   // tilt the gun while aiming so the line over the rear sight to the front sight is level, rear sight on the eye line
@@ -3632,7 +3636,7 @@ function renderReplay(dt) {
       vm.root.visible = true; vm.flash.visible = RP.kick > .7;
       vm.flash.position.set(0, FLASH_Y[key] ?? .01, FLASH_Z[key] || -.6);
       const HP = (W && W.hip) || VM_HIP, ak = W.scope ? 0 : RP.adsK, hx = HP[0] + Math.cos(RP.bob) * .01 * sp, hy = HP[1] - Math.abs(Math.sin(RP.bob)) * .012 * sp;
-      vm.root.position.set(hx + (0 - hx) * ak + SP.x, hy + ((W.adsY ?? hy) - hy) * ak + SP.y, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) + SP.z);
+      vm.root.position.set(hx + ((W.adsX || 0) - hx) * ak + SP.x, hy + ((W.adsY ?? hy) - hy) * ak + SP.y, HP[2] + ((W.adsZ ?? HP[2]) - HP[2]) * ak + RP.kick * (ak ? .02 : .05) + SP.z);
       vm.root.rotation.set(RP.kick * .08 + (W && W.adsTilt || 0) * ak + SP.rx, SP.ry, SP.rz);
       setReticle(key, Math.max(0, ak * 1.4 - .4));
       fpArmsPose(kp.team); renderer.clearDepth(); renderer.render(vmScene, vmCamera);
@@ -3735,7 +3739,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #33)';
+const GAME_VERSION = '1.0 (10-12 #34)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4361,7 +4365,7 @@ function render(dt) {
     vm.root.visible = !dead && !(aiming && w.scope) && endK < .15;
     // aiming slides the weapon so its sight sits at the screen center
     vm.sprintK = (vm.sprintK || 0) + ((me.sprint && !ads ? 1 : 0) - (vm.sprintK || 0)) * Math.min(1, dt * 8);
-    const HP = w.hip || VM_HIP, tx = ads ? 0 : HP[0] + bx - vm.sprintK * .05, ty = ads ? w.adsY : HP[1] - by - vm.sprintK * .07, tz = ads ? w.adsZ : HP[2];
+    const HP = w.hip || VM_HIP, tx = ads ? w.adsX || 0 : HP[0] + bx - vm.sprintK * .05, ty = ads ? w.adsY : HP[1] - by - vm.sprintK * .07, tz = ads ? w.adsZ : HP[2];
     vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * Math.min(1, dt * 18);
     vm.ay = vm.ay === undefined ? ty : vm.ay + (ty - vm.ay) * Math.min(1, dt * 18);
     vm.az = vm.az === undefined ? tz : vm.az + (tz - vm.az) * Math.min(1, dt * 18);
