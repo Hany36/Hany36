@@ -40,7 +40,6 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .cross .t, .cross .b { width: 2px; height: 8px; left: -1px; }
 .cross .l, .cross .r { height: 2px; width: 8px; top: -1px; }
 .cross .dot { width: 2px; height: 2px; left: -1px; top: -1px; }
-.reddot { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #ff2a2a; box-shadow: 0 0 6px 2px rgba(255, 40, 40, .7), 0 0 0 1px rgba(0,0,0,.4); }
 .hitm { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; }
 .hitm::before, .hitm::after { content: ""; position: absolute; left: 10px; top: -3px; width: 2px; height: 28px; background: #fff; transform: rotate(45deg); }
 .hitm::after { transform: rotate(-45deg); }
@@ -233,7 +232,6 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
   <div class="scope" id="scope" hidden></div>
   <div class="hurt" id="hurt"></div>
   <div class="cross" id="cross"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
-  <div class="reddot" id="reddot" hidden></div>
   <div class="hitm" id="hitm"></div>
   <div class="dmgdir" id="dmgdir"></div>
   <div class="score"><div class="sb" id="sBlue">0</div><div class="st" id="sTime">5:00</div><div class="sr" id="sRed">0</div></div>
@@ -3024,9 +3022,8 @@ function hud(dt) {
   $('wName').textContent = `${w.n} · 수류탄 ${nades}`;
   $('reloadMsg').hidden = !(reloadT > 0);
   $('scope').hidden = !(aiming && w.scope && !me.dead);
-  // hip fire: spread lines (sniper shows only the center dot); rifle/pistol aiming: red dot
+  // hip fire: spread lines (sniper shows only the center dot); aiming uses the weapon's own sights (the red dot lives in the reflex sight)
   const cross = $('cross');
-  $('reddot').hidden = !(aiming && !w.scope && !w.melee) || me.dead;
   cross.style.visibility = aiming || me.dead ? 'hidden' : 'visible';
   const gap = 5 + currentSpread() * 260, lines = w.scope ? 'hidden' : '';
   const cr = cross.children;
@@ -3738,7 +3735,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #32)';
+const GAME_VERSION = '1.0 (10-12 #33)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
