@@ -1602,7 +1602,7 @@ const CHARACTER = {
 // weapon models: assets/models/weapons.glb, made from the Sketchfab files in assets/models/source (CC BY 4.0, see ASSET_CREDITS.md).
 // Each one points its barrel at -z, centered, as long as the game's old block weapon. Spots on each model (meters, its own space):
 // r: right hand on the grip, l: left hand (null: one-handed), sight: height of the sight line, muzzle: [y, z],
-// optic + mount: which red dot sight (SIGHTS) sits on the weapon and where its base goes ([y, z]: rail top, middle of the base);
+// optic + mount: which red dot sight (SIGHTS) sits on the weapon and where its base goes ([y, z, x]: rail top, middle of the base, rail's middle if not 0);
 // sightLine: [[z, y] rear, [z, y] front] when the sights are not level with the barrel; eye: how far the rear sight sits ahead of the eye when aiming;
 // sx: how far left (-) of the model's middle the sights are; hip: where the weapon sits in first person when not aiming, if not the usual
 const GUN_MODELS = {
@@ -1611,7 +1611,7 @@ const GUN_MODELS = {
   pistol:   { r: [0, -.025, .065], l: [-.02, -.035, .045], sight: .072, muzzle: [.045, -.11], hip: [.15, -.14, -.36] },
   sniper:   { r: [0, -.075, .24], l: [0, .01, -.2], sight: .095, muzzle: [0, -.6] },
   shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], sight: .105, muzzle: [.07, -.51] },
-  smg:      { r: [0, -.035, .085], l: [0, .05, -.22], muzzle: [.05, -.34], optic: 'sightReflex', mount: [.117, -.06] },   // on the receiver, ahead of the rear sight drum (it sits high enough to see over it)
+  smg:      { r: [.0035, -.035, .1], l: [.0035, .045, -.17], muzzle: [.066, -.305], optic: 'sightReflex', mount: [.1125, -.02, .0035] },   // MP5 with a short rail on the receiver
   revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .066, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
   knife:    { r: [0, 0, .1], l: null },
 };
@@ -1628,10 +1628,10 @@ function loadWeapons() {
         const o = k !== 'url' && g.scene.getObjectByName(k); if (!o) continue;
         const sp = GUN_MODELS[k], optic = sp.optic && g.scene.getObjectByName(sp.optic), D = sp.optic && SIGHTS[sp.optic].dot;
         if (optic) {   // the red dot sight's base on the rail, centered over the barrel; aiming looks through the middle of its glass
-          const s = optic.clone(); s.position.set(0, sp.mount[0], sp.mount[1]); o.add(s);
+          const s = optic.clone(); s.position.set(sp.mount[2] || 0, sp.mount[0], sp.mount[1]); o.add(s);
           // its tinted glass: lighter, so targets behind it stay easy to see (and it never hides what's behind it in depth)
           s.traverse(m => { if (m.isMesh && m.material.transparent && !m.material._glass) { m.material._glass = true; m.material.opacity *= .45; m.material.depthWrite = false; } });
-          sp.sight = sp.mount[0] + D[1]; sp.dot = [D[0], sp.sight, sp.mount[1] + D[2]];
+          sp.sight = sp.mount[0] + D[1]; sp.dot = [(sp.mount[2] || 0) + D[0], sp.sight, sp.mount[1] + D[2]];
         }
         o.traverse(m => { if (m.isMesh) m.castShadow = true; });
         guns[k] = o;
@@ -3739,7 +3739,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #34)';
+const GAME_VERSION = '1.0 (10-12 #35)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;

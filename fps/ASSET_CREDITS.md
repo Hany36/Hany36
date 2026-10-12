@@ -30,7 +30,7 @@
 | 권총 | Pistol (`source/gun-pistol.glb`) | h1ggs (https://sketchfab.com/h1ggs) | https://sketchfab.com/3d-models/pistol-393c280875c84172a191a66adc52c60c | CC BY 4.0 |
 | 저격총 | Sniper rifle GameReady Free (`source/gun-sniper.glb`) | pashtetuser (https://sketchfab.com/pashtetuser) | https://sketchfab.com/3d-models/sniper-rifle-gameready-free-e520b234140049e7890db0b6c29d3925 | CC BY 4.0 |
 | 산탄총 | Shotgun (`source/gun-shotgun.glb`) | DJMaesen (https://sketchfab.com/bumstrum) | https://sketchfab.com/3d-models/shotgun-2f5b48d9904145a39c1c2fcc6e5579b7 | CC BY 4.0 |
-| 기관단총 | Mp5 (`source/gun-smg.glb`) | Long Nguyễn (https://sketchfab.com/LongNguyen89) | https://sketchfab.com/3d-models/mp5-fa9b8914fda34acb9a54fa64e99d5608 | CC BY 4.0 |
+| 기관단총 | MP5 - COD:MW2019 (PBR) (`source/gun-smg-mw.glb`, 받은 이름 `mp5_-_codmw2019_pbr.glb`) | Wicked_Vixx (https://sketchfab.com/tylukex) | https://sketchfab.com/3d-models/mp5-codmw2019-pbr-8d32423f6a0f4d1d99ecb0744f40e22f | 파일에는 CC BY 4.0이라고 적혀 있지만 **불확실** (아래 주의) |
 | 리볼버 | Revolver Low-poly (`source/gun-revolver.glb`) | Georg_Evd (https://sketchfab.com/Georg_Evd) | https://sketchfab.com/3d-models/revolver-low-poly-1b204e03f23e45508e6669d7c128f382 | CC BY 4.0 |
 | 칼 | BUCK 120 General Knife (`source/knife.glb`) | Kirilllucas (https://sketchfab.com/Kirill_Rostovtsev) | https://sketchfab.com/3d-models/buck-120-general-knife-e854d824feb14900b6963729ae122f55 | CC BY 4.0 |
 
@@ -42,15 +42,17 @@
 | 권총 | 1,923,404 B, glTF 2.0 | 2 / 2 / 1024² 3장 | 14,350: 본체(glock) 13,410, 가늠자 발광 부분(sight_glow) 940. 탄창 따로 없음, 손 없음 | 0.036 × 0.143 × 0.207 | 미확인 |
 | 저격총 | 3,435,716 B, glTF 2.0 | 42 / 1 / 1024² 3장 | 15,257: 본체 12,591(손잡이 318 포함), 조준경으로 보이는 부품(Aim·eccentric 이름) 1,822, 레일 724, 탄창 120. 손 없음 | 2.516 × 7.902 × 32.469 | 미확인 |
 | 산탄총 | 4,520,728 B, glTF 2.0 | 5 / 1 / 1024² 3장 | 16,260: 본체 13,784, 펌프 1,766, 탄(slug) 526, 장전부(loader) 110, 방아쇠 74. 손 없음 | 10.091 × 34.679 × 138.078 | 미확인 |
-| 기관단총 MP5 | 475,404 B, glTF 2.0 | 1 / 1 / 512² 2장 | 1,865 (부품이 하나로 합쳐져 있어 이름으로 구분 불가) | 61.583 × 32.202 × 49.255 | 미확인 |
+| 기관단총 MP5 (MW2019) | 11,434,092 B, glTF 2.0 (Sketchfab-16.64.0), 확장 `KHR_materials_specular`(필수 아님, 게임에선 무시) | 5 / 5 / PNG 11장(1024², 색·노멀) | **34,193** (기준 2만 개 초과, 저장소 주인이 확인 후 적용 결정): 위 몸통 12,283, 아래 몸통 11,604, 조준기 부분 5,154, 표면 부품 3,336, 탄창 1,816 | 0.050 × 0.232 × 0.578 | 미확인 |
 | 리볼버 | 3,764,900 B, glTF 2.0 | 1 / 1 / 1024² 3장 | 13,288 (부품 하나, 이름으로 구분 불가) | 0.564 × 1.958 × 3.994 | 미확인 |
 | 칼 | 3,865,956 B, glTF 2.0 | 7 / 2 / 1024² 6장 | 3,100: 칼 1,328(날 366·코등이 158·손잡이 804), 칼집 1,772. 모델 페이지 설명(칼 1328, 칼집 1772)과 같음 | 0.374 × 0.123 × 0.028 (칼집 포함) | 미확인 |
 
+- **기관단총(MP5 MW2019) 주의:** 제목이 상용 게임 *Call of Duty: Modern Warfare (2019)*의 무기이고, 파일 속 부품 이름(`w_smg_mp5`, `mp5.smd`, `ValveBiped.weapon_bone`)이 게임에서 추출해 다른 게임(Garry's Mod 등)용으로 옮긴 모델의 형식이에요. 원래 저작권은 게임 회사에 있을 가능성이 커서, 업로더가 붙인 CC BY 4.0이 유효하다고 보기 어려워요. 이 점과 공개 저장소·게임 사이트로 배포되는 위험(저작권 신고 시 사이트가 내려갈 수 있음)을 저장소 주인에게 알렸고, 저장소 주인이 2026-10-12에 알고 쓰기로 결정했어요. 함께 받은 더 큰 텍스처 버전(`mp5_-_codmw2019_pbr_1.glb`)은 넣지 않았어요. 이전 MP5(Long Nguyễn의 Mp5)는 이걸로 바꾸면서 지웠어요.
 - 7개 모두 HTML이 아닌 정상 glTF 바이너리(헤더 `glTF`, 선언 길이 = 파일 길이), 필수 확장 없음, 애니메이션 없음, 손 모델 없음.
 - 파일마다 단위가 제각각이고(예: 소총은 0.2, 산탄총은 138) 실제 치수를 알려 주는 근거가 없어서 실제 크기는 "미확인"으로 남겼어요.
 
 **바꾼 내용** (`weapons.glb`를 만들 때. 원본 파일은 그대로 둠)
-- 총구가 앞(-z), 위가 +y가 되게 돌리고 가운데로 옮김. MP5는 파일 안에서 비스듬히(약 38°) 놓여 있어 꼭짓점 분포로 긴 축을 찾아 돌림.
+- 총구가 앞(-z), 위가 +y가 되게 돌리고 가운데로 옮김.
+- MP5(MW2019): 뼈대(스킨)는 쓰지 않고 기본 자세 그대로 굳힘. 원래 재질이 거울처럼 매끈한 플라스틱(금속성 0, 거칠기 0.016)이라 금속성 0.35, 거칠기 0.5로 바꿈. 색 텍스처는 1024 유지.
 - 크기: 실제 크기를 알 수 없어서 게임의 예전 블록 무기 길이에 맞춤(소총 1.08, 권총 0.21, 저격총 1.18, 산탄총 1.01, 기관단총 0.67, 리볼버 0.30, 칼 0.34. 3인칭에서는 0.8배).
 - 같은 재질을 쓰는 부품은 하나로 합침(저격총 42개 → 1개 등, 그리기 횟수 줄이기).
 - 텍스처를 줄임: 색 1024, 나머지(노멀·거칠기·금속·AO·발광) 512, 재질이 많은 소총은 모두 512. JPEG로 다시 저장. 7개 합계 23.6MB → 7.2MB.
@@ -64,7 +66,7 @@
 | 게임에서 | 모델 (원본 파일) | 제작자 | 모델 페이지 | 라이선스 |
 |---|---|---|---|---|
 | 소총(M4) 레일 위 | Crimson Trace CTS-1550 Red Dot Sight (`source/sight-cts.glb`, 받은 이름 `crimson_trace_cts-1550_red_dot_sight.glb`) | Orshia 3D (https://sketchfab.com/TalhaHelvaci) | https://sketchfab.com/3d-models/crimson-trace-cts-1550-red-dot-sight-a29f7326e13c454a9de1a027c74dd8ae | CC BY 4.0 |
-| 기관단총(MP5) 위 | FPS Red Dot Sight (Game Model) (`source/sight-reflex.glb`, 받은 이름 `fps_red_dot_sight_game_model.glb`) | Michael Makivic (https://sketchfab.com/makivic) | https://sketchfab.com/3d-models/fps-red-dot-sight-game-model-0cf999d9363940c2b149dcd80c448554 | CC BY 4.0 |
+| 기관단총(MP5) 레일 위 | FPS Red Dot Sight (Game Model) (`source/sight-reflex.glb`, 받은 이름 `fps_red_dot_sight_game_model.glb`) | Michael Makivic (https://sketchfab.com/makivic) | https://sketchfab.com/3d-models/fps-red-dot-sight-game-model-0cf999d9363940c2b149dcd80c448554 | CC BY 4.0 |
 
 **파일 검사 결과**
 
@@ -79,7 +81,7 @@
 **바꾼 내용**
 - 유리(가장 높은 쪽)가 앞(-z)을 보게 돌리고 바닥을 y = 0, 가운데 맞춤. 길이 CTS 0.065, FPS Red Dot 0.095(게임 단위). 텍스처 축소(색 1024, 나머지 512, 유리는 투명도를 살려 PNG).
 - CTS의 빨간 점 부품(Reddot_M, 삼각형 8개)은 뺌. 정조준할 때 렌즈 가운데 보이는 빨간 점은 게임이 그리는 빛 효과 하나만 씀(두 개가 겹쳐 보이지 않게).
-- 게임 안에서: CTS는 M4 위쪽 레일에 마운트 바닥을 붙이고, FPS Red Dot은 MP5 몸통 위(뒤쪽 가늠자 앞)에 얹음. 유리는 뒤가 잘 보이도록 더 투명하게(불투명도 0.45배).
+- 게임 안에서: CTS는 M4 위쪽 레일에 마운트 바닥을 붙이고, FPS Red Dot은 MP5 위쪽 레일에 클램프를 붙임. 유리는 뒤가 잘 보이도록 더 투명하게(불투명도 0.45배).
 - 이전에 쓰던 Reflex Sight | LowPoly(VyrianStudios)는 2026-10-12에 이 두 조준기로 바꾸면서 저장소에서 지웠어요.
 
 ## 3. 함께 넣은 코드
