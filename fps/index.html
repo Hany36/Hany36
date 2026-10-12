@@ -185,6 +185,7 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 .btn:disabled { opacity: .45; cursor: default; }
 .card.wide { max-width: 760px; }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.stats.five { grid-template-columns: repeat(5, 1fr); }
 .stats div { padding: 8px 4px; border-radius: 8px; background: #1d211b; border: 1px solid var(--line); }
 .stats b { display: block; font: 700 22px/1.1 var(--font-num); }
 .stats small { font-size: 11.5px; color: var(--muted); }
@@ -1617,8 +1618,9 @@ const GUN_MODELS = {
   // the sight sits on the back of the receiver, behind the rear sight (which peeks up at the bottom of its glass)
   shotgun:  { r: [0, -.065, .415], l: [0, .03, -.1], muzzle: [.07, -.51], optic: 'sightReflex', mount: [.097, .23], adsZ: -.26, dotSize: .0075 },
   smg:      { r: [.0035, -.035, .1], l: [.0035, .045, -.17], muzzle: [.066, -.305], optic: 'sightReflex', mount: [.1125, -.02, .0035] },   // MP5 with a short rail on the receiver
-  // a glowing insert on the back of the front blade (top .0715, 5.4 mm wide); its middle is the aim point
-  revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sight: .0693, dot: [0, .0693, -.115], dotSize: .006, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
+  // the line of sight runs just over the back of the top strap (.0735, 2 mm higher than the front blade) and the top of the
+  // front blade (5.4 mm wide), so no part of the gun covers the aim point; a small glowing dot sits on the blade at the aim point
+  revolver: { r: [0, -.03, .08], l: [-.02, -.04, .06], sightLine: [[.07, .0739], [-.1153, .0719]], eye: .24, dot: [0, .0719, -.1153], dotSize: .005, muzzle: [.045, -.155], hip: [.15, -.14, -.36] },
   knife:    { r: [0, 0, .1], l: null },
 };
 // red dot sights (nodes in weapons.glb, glass forward, base on y = 0, base centered): the middle of the glass, where the dot shows
@@ -2372,7 +2374,7 @@ function endMusic(kind, vol) {
 const HEAD_R = .16;
 function newActor(team, name, isMe) {
   const a = { team, name, isMe, hp: 100, dead: true, respawn: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0,
-    crouch: false, ground: true, kills: 0, deaths: 0, stats: { shots: 0, hits: 0, hs: 0 }, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
+    crouch: false, ground: true, kills: 0, deaths: 0, dmg: 0, stats: { shots: 0, hits: 0, hs: 0 }, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
   if (!isMe) {
     a.mesh = makeSoldier(team); scene.add(a.mesh);
     if (team === (G.myTeam || 'blue')) a.mesh.add(allyMarker());
@@ -2408,6 +2410,8 @@ function spawnActor(a) {
 function damage(victim, amount, attacker, weapon, head, from) {
   if (victim.dead || victim.protect > 0) return false;
   if (victim.isMe && loadoutEquip === 'armor') amount *= .7;
+  // damage dealt to the other team during the match (only what the victim's health could take), for the results
+  if (attacker && attacker.team !== victim.team && G.state === 'play') attacker.dmg = (attacker.dmg || 0) + Math.min(amount, Math.max(0, victim.hp));
   victim.hp -= amount;
   victim.lastHitBy = attacker;
   if (victim.isMe) hurtFlash(from);
@@ -3066,12 +3070,14 @@ function hud(dt) {
   $('board').hidden = !(keys.Tab && G.state !== 'over');
   if (!$('board').hidden) renderBoard();
 }
-function boardHtml() {
-  const team = t => G.actors.filter(a => a.team === t).sort((x, y) => y.kills - x.kills)
-    .map(a => `<tr class="${a.isMe ? 'meRow' : ''}"><td>${a.name}</td><td>${a.kills}</td><td>${a.deaths}</td></tr>`).join('');
+// the Tab scoreboard shows kills and deaths; the results at the end also the damage each player dealt
+function boardHtml(withDmg) {
+  const team = t => G.actors.filter(a => a.team === t).sort((x, y) => y.kills - x.kills || (withDmg ? (y.dmg || 0) - (x.dmg || 0) : 0))
+    .map(a => `<tr class="${a.isMe ? 'meRow' : ''}"><td>${a.name}</td><td>${a.kills}</td><td>${a.deaths}</td>${withDmg ? `<td>${Math.round(a.dmg || 0)}</td>` : ''}</tr>`).join('');
+  const head = `<tr><td></td><td>킬</td><td>데스</td>${withDmg ? '<td>데미지</td>' : ''}</tr>`;
   return `
-    <div><h3 style="color:var(--blue)">블루 ${G.score.blue}</h3><table><tr><td></td><td>킬</td><td>데스</td></tr>${team('blue')}</table></div>
-    <div><h3 style="color:var(--red)">레드 ${G.score.red}</h3><table><tr><td></td><td>킬</td><td>데스</td></tr>${team('red')}</table></div>`;
+    <div><h3 style="color:var(--blue)">블루 ${G.score.blue}</h3><table>${head}${team('blue')}</table></div>
+    <div><h3 style="color:var(--red)">레드 ${G.score.red}</h3><table>${head}${team('red')}</table></div>`;
 }
 function renderBoard() { $('board').innerHTML = boardHtml(); }
 
@@ -3343,18 +3349,19 @@ function showResults() {
   if (document.pointerLockElement) document.exitPointerLock();
   $('endBan').hidden = true; document.body.classList.remove('ending');
   const title = { win: '승리', lose: '패배', draw: '무승부' }[G.result];
-  const mvp = G.actors.slice().sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)[0];
+  const mvp = G.actors.slice().sort((a, b) => b.kills - a.kills || (b.dmg || 0) - (a.dmg || 0) || a.deaths - b.deaths)[0];
   const st = me.stats, acc = st.shots ? Math.round(st.hits / st.shots * 100) : 0;
   $('card').className = 'card wide';
   $('card').innerHTML = `
     <h2 style="color:${G.result === 'win' ? 'var(--amber)' : G.result === 'lose' ? 'var(--red)' : 'var(--ink)'}">${title}</h2>
     <div class="result"><span class="b">${G.score.blue}</span> : <span class="r">${G.score.red}</span></div>
-    <p class="keep">MVP <span class="mvp">${mvp.name}</span> · ${mvp.kills}킬 ${mvp.deaths}데스</p>
-    <div class="stats">
+    <p class="keep">MVP <span class="mvp">${mvp.name}</span> · ${mvp.kills}킬 ${mvp.deaths}데스 · 데미지 ${Math.round(mvp.dmg || 0)}</p>
+    <div class="stats five">
       <div><b>${me.kills}</b><small>킬</small></div><div><b>${me.deaths}</b><small>데스</small></div>
+      <div><b>${Math.round(me.dmg || 0)}</b><small>데미지</small></div>
       <div><b>${st.hs}</b><small>헤드샷</small></div><div><b>${acc}%</b><small>명중률</small></div>
     </div>
-    <div class="board">${boardHtml()}</div>
+    <div class="board">${boardHtml(true)}</div>
     ${NET.role !== 'off' ? `<button class="btn" type="button" data-act="lobby">대기실로</button>` : `<button class="btn" type="button" data-act="start">다시 하기</button>`}
     <button class="btn ghost" type="button" data-act="menu">메인 메뉴로</button>`;
   $('overlay').hidden = false;
@@ -3756,7 +3763,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #39)';
+const GAME_VERSION = '1.0 (10-12 #40)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4178,7 +4185,7 @@ function netHostTick(dt) {
   if (NET.sendT > 0 || !(NET.conn && NET.conn.open)) return;
   NET.sendT = .05;
   netSend({ t: 'sn', ts: +netNow().toFixed(3), tm: R2(G.time), s: [G.score.blue, G.score.red],
-    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0]),
+    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0, Math.round(a.dmg || 0)]),
     n: G.nades.map(p => [R2(p.x), R2(p.y), R2(p.z)]), sh: NET.shots });
   NET.shots = [];
 }
@@ -4188,7 +4195,7 @@ function netApplySnap(m) {
   G.time = +m.tm || G.time; if (Array.isArray(m.s)) { G.score.blue = m.s[0]; G.score.red = m.s[1]; }
   m.a.forEach((r, i) => {
     const a = G.actors[i]; if (!a || !Array.isArray(r)) return;
-    a.kills = r[9]; a.deaths = r[10];
+    a.kills = r[9]; a.deaths = r[10]; if (r[20] !== undefined) a.dmg = r[20];
     const wasDead = a.dead, nowDead = !!r[8];
     if (a.isMe) {
       a.hp = r[7]; a.protect = r[12] ? Math.max(a.protect, .1) : 0;
