@@ -10,7 +10,6 @@
     gunshotsVolume: 1,
     footstepsVolume: 1,
     combatEffectsVolume: 1,
-    hitmarkerVolume: 1,
     dir: 'assets/sounds/source/',
     // clip: [start, end] seconds in the file, fade in/out ms, hp: high-pass Hz (0 = none), norm: gain in dB from the analysis
     clips: {
@@ -19,15 +18,14 @@
       grenade: { file: 'One_hand_grenade_exp_#4-1791853120591.mp3', clip: [0, 1.75], fadeIn: 0, fadeOut: 300, hp: 0, norm: -3.7 },
       rifle:   { file: 'One_isolated_assault_#4-1791852873626.mp3', clip: [0, .60], fadeIn: 0, fadeOut: 100, hp: 0, norm: -12.0 },
       pistol:  { file: 'One_isolated_pistol__#1-1791852982564.mp3', clip: [0, 1.00], fadeIn: 0, fadeOut: 150, hp: 0, norm: -8.0 },
-      pw1:     { file: 'One_isolated_powerfu_#1-1791853007928.mp3', clip: [0, .80], fadeIn: 0, fadeOut: 100, hp: 0, norm: -12.4, note: '1초 파일. 250Hz 아래 저음 비중 56%, 울림이 -30dB까지 줄어드는 데 약 0.39초' },
-      pw2:     { file: 'One_isolated_powerfu_#2-1791853350227.mp3', clip: [0, 1.10], fadeIn: 0, fadeOut: 200, hp: 0, norm: -14.5, note: '2초 파일. 250Hz 아래 저음 비중 12%(더 밝음), 울림이 -30dB까지 줄어드는 데 약 0.43초' },
+      pw1:     { file: 'One_isolated_powerfu_#1-1791853007928.mp3', clip: [0, .80], fadeIn: 0, fadeOut: 100, hp: 0, norm: -12.4, note: '저격총 (저장소 주인이 들어 보고 확인)' },
+      pw2:     { file: 'One_isolated_powerfu_#2-1791853350227.mp3', clip: [0, 1.10], fadeIn: 0, fadeOut: 200, hp: 0, norm: -14.5, note: '리볼버 (저장소 주인이 들어 보고 확인)' },
       shotgun: { file: 'One_isolated_shotgun_#3-1791852958577.mp3', clip: [0, .85], fadeIn: 0, fadeOut: 150, hp: 0, norm: -12.8 },
       smg:     { file: 'One_isolated_submach_#4-1791853321652.mp3', clip: [0, .90], fadeIn: 0, fadeOut: 200, hp: 0, norm: -9.0 },
-      punch:   { file: 'One_light_punch_agai_#2-1791854246884.mp3', clip: [.115, .45], fadeIn: 2, fadeOut: 60, hp: 0, norm: 5.8, note: '앞쪽 0.1초의 작은 잡음은 뺌' },
       hit:     { file: 'One_short_bullet-hit_#3-1791853437882.mp3', clip: [0, .45], fadeIn: 0, fadeOut: 80, hp: 45, norm: 7.8, note: '에너지의 77%가 40Hz 아래 초저음이라 45Hz 아래를 걸러냄' },
-      stepA:   { file: 'One_single_footstep__#3-1791854574133.mp3', clip: [0, .50], fadeIn: 0, fadeOut: 80, hp: 0, norm: -4.8, note: '밝고 거친 잡음 뒤에 작은 알갱이 소리가 이어짐 (분석상 모래 쪽에 가까움, 추정)' },
-      stepB:   { file: 'One_single_footstep__#3-1791854605619.mp3', clip: [0, .50], fadeIn: 0, fadeOut: 80, hp: 0, norm: 8.1, note: '아주 작게 녹음됨(최고 -21dBFS). 충격이 여러 번 이어지고 파일 끝에서 소리가 잘려 있음 (분석상 금속 덜컹거림 쪽에 가까움, 추정)' },
-      stepC:   { file: 'One_single_loud,_fir_#3-1791854657905.mp3', clip: [0, .45], fadeIn: 0, fadeOut: 60, hp: 45, norm: 6.0, note: '짧고 묵직함. 에너지의 72%가 40Hz 아래라 45Hz 아래를 걸러냄 (분석상 단단한 바닥 쪽에 가까움, 추정)' },
+      stepA:   { file: 'One_single_footstep__#3-1791854574133.mp3', clip: [0, .50], fadeIn: 0, fadeOut: 80, hp: 0, norm: -4.8, note: '모래 (저장소 주인이 들어 보고 확인)' },
+      stepB:   { file: 'One_single_footstep__#3-1791854605619.mp3', clip: [0, .50], fadeIn: 0, fadeOut: 80, hp: 0, norm: 8.1, note: '컨테이너 (저장소 주인이 들어 보고 확인). 아주 작게 녹음됨(최고 -21dBFS), 파일 끝에서 소리가 잘려 있음' },
+      stepC:   { file: 'One_single_loud,_fir_#3-1791854657905.mp3', clip: [0, .45], fadeIn: 0, fadeOut: 60, hp: 45, norm: 6.0, note: '콘크리트 (저장소 주인이 들어 보고 확인). 소리의 95%가 45Hz 아래, 80Hz 위는 거의 없어서 귀에는 작게 들림 → 새 파일 필요' },
     },
     // use: the clips the sound plays (several: they take turns); candidates: files not yet told apart, picked on the test page
     sounds: {
@@ -35,18 +33,18 @@
       smg_shot:          { cat: 'gunshots', use: ['smg'], gain: 1 },
       shotgun_shot:      { cat: 'gunshots', use: ['shotgun'], gain: 1.1 },   // 110%, 80%: the owner's ears (2026-10-13)
       pistol_shot:       { cat: 'gunshots', use: ['pistol'], gain: .8 },
-      sniper_shot:       { cat: 'gunshots', use: [], candidates: ['pw1', 'pw2'], gain: 1, check: 'One_isolated_powerfu… 두 파일 중 어느 것이 저격총인지 구분하지 못했어요. 들어 보고 골라 주세요. 고르기 전에는 예전 합성음이 나와요.' },
-      revolver_shot:     { cat: 'gunshots', use: [], candidates: ['pw1', 'pw2'], gain: 1, check: 'One_isolated_powerfu… 두 파일 중 어느 것이 리볼버인지 구분하지 못했어요. 들어 보고 골라 주세요. 고르기 전에는 예전 합성음이 나와요.' },
+      sniper_shot:       { cat: 'gunshots', use: ['pw1'], candidates: ['pw1', 'pw2'], gain: 1 },
+      revolver_shot:     { cat: 'gunshots', use: ['pw2'], candidates: ['pw1', 'pw2'], gain: 1 },
       knife_swing:       { cat: 'combat', use: ['knifeA', 'knifeB'], gain: 1, check: '파일 하나에 휘두르기가 두 번 들어 있어서 두 트랙(A, B)으로 잘라 번갈아 써요.' },
       grenade_explosion: { cat: 'combat', use: ['grenade'], gain: 1 },
       character_hit:     { cat: 'combat', use: ['hit'], gain: 1 },
-      hitmarker:         { cat: 'hitmarker', use: ['punch'], gain: 1 },
-      step_sand:         { cat: 'footsteps', use: [], candidates: ['stepA', 'stepB', 'stepC'], gain: 1, check: '발소리 파일 3개가 어느 바닥인지 구분하지 못했어요. 들어 보고 골라 주세요. 고르기 전에는 예전 합성 발소리가 나와요.' },
-      step_concrete:     { cat: 'footsteps', use: [], candidates: ['stepA', 'stepB', 'stepC'], gain: 1, check: '발소리 파일 3개가 어느 바닥인지 구분하지 못했어요. 들어 보고 골라 주세요.' },
-      step_container:    { cat: 'footsteps', use: [], candidates: ['stepA', 'stepB', 'stepC'], gain: 1, check: '발소리 파일 3개가 어느 바닥인지 구분하지 못했어요. 들어 보고 골라 주세요.' },
+      step_sand:         { cat: 'footsteps', use: ['stepA'], candidates: ['stepA', 'stepB', 'stepC'], gain: 1 },
+      // the file is almost all deep rumble: as loud as the peak allows (about -1.4 dBFS); a new recording is wanted
+      step_concrete:     { cat: 'footsteps', use: ['stepC'], candidates: ['stepA', 'stepB', 'stepC'], gain: 1.25, check: '이 파일은 소리 대부분이 아주 낮은 저음이라 귀에는 작게 들려요. 새 콘크리트 발소리 파일을 기다리는 중이에요.' },
+      step_container:    { cat: 'footsteps', use: ['stepB'], candidates: ['stepA', 'stepB', 'stepC'], gain: 1 },
     },
   };
-  const CAT_KEY = { gunshots: 'gunshotsVolume', footsteps: 'footstepsVolume', combat: 'combatEffectsVolume', hitmarker: 'hitmarkerVolume' };
+  const CAT_KEY = { gunshots: 'gunshotsVolume', footsteps: 'footstepsVolume', combat: 'combatEffectsVolume' };
   const STORE = 'jammini-audio-v2';
   const DEFAULTS = JSON.parse(JSON.stringify(AUDIO_CONFIG));
 

@@ -1778,6 +1778,7 @@ function animateRig(a, dt, sp) {
   a.leanK = (a.leanK || 0) + ((a.leanOff || 0) / LEAN_DIST - (a.leanK || 0)) * k;
   a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.mesh.position.set(a.x, a.y, a.z);
   const fwd = RIGV.fwd.set(-Math.sin(a.yaw), 0, -Math.cos(a.yaw)), right = RIGV.right.set(Math.cos(a.yaw), 0, -Math.sin(a.yaw));
+  if (a.leanK) { const ls = a.leanK * LEAN_DIST * LEAN_SHIFT; a.mesh.position.x += right.x * ls; a.mesh.position.z += right.z * ls; }   // leaning: the body steps out too
   // which way the body actually moves (bots strafe and back off while facing their target)
   if (dt > 0) {
     let vx = (a.x - (a._rx ?? a.x)) / dt, vz = (a.z - (a._rz ?? a.z)) / dt;
@@ -1861,7 +1862,7 @@ function animateRig(a, dt, sp) {
   // upper body: lean to the side, look up and down, bend forward when sprinting or crouched
   const up1 = 1 - pk;   // lying down the clip's own pose holds: no stance twist, lean or bending
   twistBone(B.Spine2, RIGV.up, R.blade * (1 - a.sprintK * .7) * up1);   // shooter's stance: left shoulder toward the target
-  twistBone(B.Spine1, fwd, a.leanK * .32 * up1);
+  twistBone(B.Spine1, fwd, a.leanK * LEAN_TILT * up1);
   twistBone(B.Spine2, right, (a.pitch * .45 - a.sprintK * .25 - a.crouchK * .1) * up1);
   twistBone(B.Neck, right, a.pitch * .3);
   // the gun: raised to the eye when aiming, lowered when sprinting, tilted with the view; hands placed on it
@@ -2276,12 +2277,6 @@ function soundWarn(list) {
   el.textContent = `효과음 파일 ${list.length}개를 불러오지 못해서 그 소리는 기본 효과음으로 나와요.`;
   document.body.appendChild(el); setTimeout(() => el.remove(), 7000);
 }
-// my hit confirmation: once per shot (a shotgun's pellets landing together make one sound), a headshot a little louder
-let lastHitSnd = 0;
-function hitSound(head) {
-  const now = performance.now(); if (now - lastHitSnd < 70) return; lastHitSnd = now;
-  if (!playSnd('hitmarker', { vol: head ? 1.3 : 1 })) sfx(head ? 'hs' : 'hit', .7);
-}
 // a bullet hitting someone, heard from where it hit (my own body: right here)
 function bodyHitSound(victim, p) {
   const now = performance.now(); if (now - (victim._hitSnd || 0) < 70) return; victim._hitSnd = now;
@@ -2525,7 +2520,9 @@ let jumpHeld = false, touchCrouch = false, crouchToggle = false;
 const CTRL_WALK = /Electron\//.test(navigator.userAgent);
 // Lean: me.lean eases toward -1 (left), 0 or 1 (right); leanOff is the sideways eye offset in meters after wall checks.
 let leanToggle = 0, touchLean = 0;
-const LEAN_DIST = .5, LEAN_ROLL = .2;
+// LEAN_SHIFT: the share of the lean done by the whole body stepping sideways (the rest is the upper body tilting), so the
+// head others see sits where the leaning player's eye and head hitbox are -- peeking out shows you as much as you see
+const LEAN_DIST = .35, LEAN_ROLL = .2, LEAN_SHIFT = .5, LEAN_TILT = .5;
 function leanVec(a) { const off = a.leanOff || 0; return [Math.cos(a.yaw) * off, -Math.sin(a.yaw) * off]; }
 function eyePos(a) { const [lx, lz] = leanVec(a); return [a.x + lx, a.y + eyeH(a), a.z + lz]; }
 function updateLean(dt) {
@@ -2671,7 +2668,7 @@ function shoot() {
     if (hit) {
       const back = Math.cos(hit.a.yaw - me.yaw) > .6;
       const killed = netDamage(hit.a, back ? 200 : w.dmg, me, w.n, false);
-      me.stats.hits++; hitMarker(killed); hitSound(false); bodyHitSound(hit.a, hit.p); burst(hit.p, [.6, 0, 0], 10, 2, .4);
+      me.stats.hits++; hitMarker(killed); bodyHitSound(hit.a, hit.p); burst(hit.p, [.6, 0, 0], 10, 2, .4);
     }
     return;
   }
@@ -2704,7 +2701,8 @@ function traceActors(o, d, maxT, shooter) {
       }
       continue;
     }
-    const tb = rayBox(o, d, { x0: a.x - .26, x1: a.x + .26, z0: a.z - .26, z1: a.z + .26, y0: a.y, y1: a.y + bodyTop(a) }, maxT);
+    const bx = a.x + lx * LEAN_SHIFT, bz = a.z + lz * LEAN_SHIFT;   // a leaning body has stepped out with its head
+    const tb = rayBox(o, d, { x0: bx - .26, x1: bx + .26, z0: bz - .26, z1: bz + .26, y0: a.y, y1: a.y + bodyTop(a) }, maxT);
     if (tb && tb.t > 0 && (!best || tb.t < best.t - .05)) best = { t: tb.t, a, head: false };
   }
   if (best) best.p = [o[0] + d[0] * best.t, o[1] + d[1] * best.t, o[2] + d[2] * best.t];
@@ -2729,7 +2727,7 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
     if (shooter.isMe) { me.shotHit = true; if (ah.head && !me.shotHead) me.stats.hs++; me.shotHead = ah.head || me.shotHead; }
     burst(ah.p, [.42, .02, .02], ah.head ? 16 : 8, 2.2, .4);
     bodyHitSound(ah.a, ah.p);
-    if (shooter.isMe) { hitMarker(killed); hitSound(ah.head); }
+    if (shooter.isMe) hitMarker(killed);   // the hit marker is visual only (no sound, the owner's choice)
   } else if (mh) {
     decal(end, mh.n);
     burst(end, [.75, .7, .6], 5, 3, .3);
@@ -2928,13 +2926,13 @@ function animateSoldier(a, dt, sp) {
   // leaning: the upper body tilts and slides to the side the player peeks
   const lean = (a.leanOff || 0) / LEAN_DIST;
   a.leanK = (a.leanK || 0) + (lean - (a.leanK || 0)) * k;
-  u.torso.position.x = a.leanK * LEAN_DIST * .35;
+  u.torso.position.x = a.leanK * LEAN_DIST * (1 - LEAN_SHIFT) * .7;
   u.torso.rotation.z = -a.leanK * .38;
   // looking up tilts the chest back and the rifle up (a positive x rotation lifts the -z side); sprinting and crouching lean forward
   u.torso.rotation.x = a.pitch * .35 - a.sprintK * .22 + (a.crouch ? -.12 : 0);
   if (u.arms) u.arms.rotation.x += a.pitch * .5 * (1 - a.sprintK);
   a.mesh.visible = true; a.mesh.rotation.x = 0;
-  a.mesh.position.set(a.x, a.y, a.z); a.mesh.rotation.set(0, a.yaw, 0, 'YXZ');
+  a.mesh.position.set(a.x + Math.cos(a.yaw) * a.leanK * LEAN_DIST * LEAN_SHIFT, a.y, a.z - Math.sin(a.yaw) * a.leanK * LEAN_DIST * LEAN_SHIFT); a.mesh.rotation.set(0, a.yaw, 0, 'YXZ');
   // lying down: the whole figure tips forward onto the ground, feet behind the head
   a.proneK = (a.proneK || 0) + ((a.prone ? 1 : 0) - (a.proneK || 0)) * Math.min(1, dt * 5);
   if (a.proneK > .01) { a.mesh.rotation.x = -a.proneK * Math.PI / 2; a.mesh.position.x += Math.sin(a.yaw) * 1.5 * a.proneK; a.mesh.position.z += Math.cos(a.yaw) * 1.5 * a.proneK; a.mesh.position.y += .15 * a.proneK; }
@@ -3031,7 +3029,7 @@ function botFire(a, t) {
   const o = [a.x, a.y + eyeH(a), a.z];
   const head = Math.random() < (settings.diff === 'hard' ? .22 : .12);
   const aimH = head ? eyeH(t) + .02 : t.prone ? .17 : 1.0 + Math.random() * .3;
-  const lk = aimH > 1.4 ? 1 : .5, [lx, lz] = leanVec(t), back = t.prone && !head ? .4 + Math.random() * .6 : 0;   // a prone body lies behind the head
+  const lk = aimH > 1.4 ? 1 : LEAN_SHIFT, [lx, lz] = leanVec(t), back = t.prone && !head ? .4 + Math.random() * .6 : 0;   // a prone body lies behind the head
   let d = [t.x + lx * lk + Math.sin(t.yaw) * back + (t.vx || 0) * .05 - o[0], t.y + aimH - o[1], t.z + lz * lk + Math.cos(t.yaw) * back + (t.vz || 0) * .05 - o[2]];
   const l = Math.hypot(...d); d = d.map(v => v / l);
   const moving = Math.hypot(a.vx, a.vz) > .5 ? 1.5 : 1, tgtMove = t.isMe ? Math.min(1.6, 1 + Math.hypot(t.vx, t.vz) / 8) : 1;
@@ -3824,7 +3822,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-13 #43)';
+const GAME_VERSION = '1.0 (10-13 #45)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;

@@ -97,17 +97,17 @@
 | `One_hand_grenade_exp_#4-1791853120591.mp3` | grenade_explosion (수류탄) | 2.00초 | 0–1.75초 | |
 | `One_isolated_assault_#4-1791852873626.mp3` | rifle_shot (소총) | 1.00초 | 0–0.60초 | 0.15초 지점에 거의 같은 크기의 충격음이 한 번 더 있음(두 발인지 확인) |
 | `One_isolated_pistol__#1-1791852982564.mp3` | pistol_shot (권총) | 2.00초 | 0–1.00초 | |
-| `One_isolated_powerfu_#1-1791853007928.mp3` | sniper_shot 또는 revolver_shot | 1.00초 | 0–0.80초 | 저격총/리볼버 구분 못 함 |
-| `One_isolated_powerfu_#2-1791853350227.mp3` | sniper_shot 또는 revolver_shot | 2.00초 | 0–1.10초 | 저격총/리볼버 구분 못 함 |
+| `One_isolated_powerfu_#1-1791853007928.mp3` | sniper_shot (저격총, 저장소 주인이 들어 보고 확인) | 1.00초 | 0–0.80초 | |
+| `One_isolated_powerfu_#2-1791853350227.mp3` | revolver_shot (리볼버, 저장소 주인이 들어 보고 확인) | 2.00초 | 0–1.10초 | |
 | `One_isolated_shotgun_#3-1791852958577.mp3` | shotgun_shot (산탄총) | 2.00초 | 0–0.85초 | |
 | `One_isolated_submach_#4-1791853321652.mp3` | smg_shot (기관단총) | 2.00초 | 0–0.90초 | |
-| `One_light_punch_agai_#2-1791854246884.mp3` | hitmarker (명중 확인음) | 0.60초 | 0.115–0.45초 | |
+| `One_light_punch_agai_#2-1791854246884.mp3` | (사용 안 함) hitmarker | 0.60초 | – | 잘 안 들려서 저장소 주인 결정으로 히트마커는 화면 표시만 씀. 파일은 원본 보존 |
 | `One_short_bullet-hit_#3-1791853437882.mp3` | character_hit (피격음) | 1.00초 | 0–0.45초, 45 Hz 아래 걸러냄 | 에너지의 77%가 40 Hz 아래 초저음 |
-| `One_single_footstep__#3-1791854574133.mp3` | step_sand / concrete / container 중 하나 | 0.60초 | 0–0.50초 | 바닥 구분 못 함 |
-| `One_single_footstep__#3-1791854605619.mp3` | step_sand / concrete / container 중 하나 | 0.60초 | 0–0.50초 | 바닥 구분 못 함. 아주 작게 녹음됨, 끝에서 소리가 잘림 |
-| `One_single_loud,_fir_#3-1791854657905.mp3` | step_sand / concrete / container 중 하나 | 0.60초 | 0–0.45초, 45 Hz 아래 걸러냄 | 바닥 구분 못 함. 에너지의 72%가 40 Hz 아래 |
+| `One_single_footstep__#3-1791854574133.mp3` | step_sand (모래, 저장소 주인이 들어 보고 확인) | 0.60초 | 0–0.50초 | |
+| `One_single_footstep__#3-1791854605619.mp3` | step_container (컨테이너, 저장소 주인이 들어 보고 확인) | 0.60초 | 0–0.50초 | 아주 작게 녹음됨, 끝에서 소리가 잘림 |
+| `One_single_loud,_fir_#3-1791854657905.mp3` | step_concrete (콘크리트, 저장소 주인이 들어 보고 확인) | 0.60초 | 0–0.45초, 45 Hz 아래 걸러냄 | 소리의 95%가 45 Hz 아래라 귀에 작게 들림 → 새 파일 필요 |
 
-- 구분하지 못한 파일은 게임에 임의로 연결하지 않았어요. 효과음 테스트 화면(`fps/sound-test.html`)에서 저장소 주인이 듣고 고르면 그 파일이 쓰이고, 고르기 전에는 예전 합성음이 나와요.
+- 처음에 구분하지 못한 저격총/리볼버와 발소리 3개는 저장소 주인이 효과음 테스트 화면(`fps/sound-test.html`)에서 듣고 알려 준 대로 연결했어요(2026-10-13).
 
 ## 4. 함께 넣은 코드
 
