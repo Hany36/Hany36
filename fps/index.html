@@ -48,6 +48,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .scope { position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0 34vmin, rgba(0,0,0,.35) 34.2vmin, #000 35vmin); }
 .scope::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.9); }
 .scope::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(0,0,0,.9); }
+.sndWarn { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 50; padding: 8px 14px; border-radius: 8px; background: rgba(40,20,10,.92); color: #ffd9a0; font-size: 13px; pointer-events: none; }
 .scope .zoomTag { position: absolute; left: 50%; top: calc(50% + 27vmin); transform: translateX(-50%); padding: 2px 9px; border-radius: 10px; background: rgba(0,0,0,.45); color: rgba(255,255,255,.85); font: 600 13px var(--font-num); white-space: nowrap; }
 .hurt { position: fixed; inset: 0; box-shadow: inset 0 0 140px 40px rgba(190, 20, 20, .55); opacity: 0; }
 
@@ -269,6 +270,7 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="lib/GLTFLoader.js"></script>
 <script src="lib/SkeletonUtils.js"></script>
+<script src="audio.js"></script>
 <script>
 'use strict';
 // =============== maps ===============
@@ -2180,6 +2182,7 @@ function audioInit() {
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
     MASTER = AC.createGain(); MASTER.connect(AC.destination); MASTER.gain.value = settings.volume * settings.volume;
+    if (window.SND) { SND.onwarn = soundWarn; SND.attach(AC, MASTER); }   // the recorded effects decode now (the first click allows sound)
     noiseBuf = AC.createBuffer(1, AC.sampleRate * .5, AC.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -2187,11 +2190,14 @@ function audioInit() {
 }
 // ---- footsteps: everyone walking on the ground makes steps you hear from where they are (3D panning);
 // crouching is nearly silent, sprinting loud. Sand sounds softer and duller than concrete.
-const STEP = { len: { prone: .6, crouch: .55, walk: .78, run: 2.0 }, vol: { prone: .05, crouch: .1, sneak: .14, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
+// len: metres per step (prone 1.1 m/s ~1.8 steps/s, crouch 2.4 ~3.2, quiet 2.6 ~2.7, aiming 3.2 ~3, walk 5.4 ~3.4, sprint 7.4 ~3.7)
+const STEP = { len: { prone: .6, crouch: .75, sneak: .95, slow: 1.05, walk: 1.6, run: 2.0 }, vol: { prone: .05, crouch: .1, sneak: .14, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
 function setPanner(pn, x, y, z) { if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = y; pn.positionZ.value = z; } else pn.setPosition(x, y, z); }
 function footstep(a, vol, land) {
   if (!AC || settings.volume <= 0 || vol < .02) return;
-  const t = AC.currentTime, sand = MAP_META.ground === 'sand', dur = land ? .17 : sand ? .12 : .075;
+  const surf = surfaceAt(a);
+  if (playSnd('step_' + surf, a.isMe ? { vol } : { vol, pos: [a.x, a.y + .1, a.z], ref: 2.5, rolloff: 1.15, max: STEP.range })) return;
+  const t = AC.currentTime, sand = surf === 'sand', dur = land ? .17 : sand ? .12 : .075;
   const src = AC.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = .8 + Math.random() * .4;
   const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = (sand ? 850 : 1700) * (land ? .55 : 1) * (.85 + Math.random() * .3); f.Q.value = sand ? .7 : 1.3;
   const g = AC.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * (sand ? .55 : .65), t + .004); g.gain.exponentialRampToValueAtTime(.001, t + dur);
@@ -2223,7 +2229,7 @@ function stepSounds(dt) {
     const sp = d / dt, sprint = a.isMe ? me.sprint : a.sprintF || sp > 6.5;
     const kind = a.prone ? 'prone' : a.crouch ? 'crouch' : sprint ? 'run' : (a.isMe ? me.sneak : a.sneak) ? 'sneak' : (a.isMe ? aiming : a.aiming) && sp < 4 ? 'slow' : 'walk';
     a._sd += d;
-    const len = STEP.len[kind === 'slow' || kind === 'sneak' ? 'walk' : kind];
+    const len = STEP.len[kind];
     if (a._sd >= len) { a._sd -= len; if (a._sd > len) a._sd = 0; footstep(a, STEP.vol[kind] * (a.isMe ? STEP.mine : 1) * (.85 + Math.random() * .3)); }
   }
 }
@@ -2260,6 +2266,51 @@ function sfx(kind, vol = 1) {
     out.gain.setValueAtTime(vol * .12, t); out.gain.exponentialRampToValueAtTime(.001, t + dur);
     o.connect(out); o.start(t); o.stop(t + dur);
   }
+}
+
+// ---- recorded sound effects (audio.js, fps/assets/sounds): each plays when its file is there, otherwise the synthesized sound above
+const playSnd = (key, opts) => !!(window.SND && AC && settings.volume > 0 && SND.play(key, opts));
+function soundWarn(list) {
+  console.warn('효과음 파일을 못 불러옴:', list);
+  const el = document.createElement('div'); el.className = 'sndWarn';
+  el.textContent = `효과음 파일 ${list.length}개를 불러오지 못해서 그 소리는 기본 효과음으로 나와요.`;
+  document.body.appendChild(el); setTimeout(() => el.remove(), 7000);
+}
+// my hit confirmation: once per shot (a shotgun's pellets landing together make one sound), a headshot a little louder
+let lastHitSnd = 0, lastWhiz = 0;
+function hitSound(head) {
+  const now = performance.now(); if (now - lastHitSnd < 70) return; lastHitSnd = now;
+  if (!playSnd('hitmarker', { vol: head ? 1.3 : 1 })) sfx(head ? 'hs' : 'hit', .7);
+}
+// a bullet hitting someone, heard from where it hit (my own body: right here)
+function bodyHitSound(victim, p) {
+  const now = performance.now(); if (now - (victim._hitSnd || 0) < 70) return; victim._hitSnd = now;
+  playSnd('character_hit', victim.isMe ? {} : { pos: p || [victim.x, victim.y + 1.2, victim.z], ref: 3, rolloff: 1.2, max: 60 });
+}
+// someone else's bullet passing close to my head: not one that hits me, stops short of me, or is fired from right beside me
+const WHIZ_DIST = 1.6;
+function whizCheck(a, b) {
+  if (!me || me.dead || !a || !b) return;
+  const h = eyePos(me), d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  if (L2 < 1) return;
+  const t = ((h[0] - a[0]) * d[0] + (h[1] - a[1]) * d[1] + (h[2] - a[2]) * d[2]) / L2;
+  if (t <= 0 || t >= 1 || t * Math.sqrt(L2) < 3) return;
+  const c = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t], dist = Math.hypot(c[0] - h[0], c[1] - h[1], c[2] - h[2]);
+  const now = performance.now(); if (dist > WHIZ_DIST || now - lastWhiz < 120) return; lastWhiz = now;
+  playSnd('bullet_whiz', { pos: c, ref: 1, rolloff: 1, vol: .6 + .4 * (1 - dist / WHIZ_DIST) });
+}
+// another soldier's gunshot, heard from where they are; one shooter's automatic fire ducks the tails of its own earlier shots
+function gunSoundAt(a, key, oldVol) {
+  if (!playSnd(key + '_shot', { pos: muzzleOf(a), ref: 4, rolloff: 1, max: 250, group: 'a' + G.actors.indexOf(a), duck: WEAPONS[key] && WEAPONS[key].auto ? .45 : 1 }))
+    sfx(key === 'sniper' || key === 'shotgun' ? 'snipe' : 'shot', oldVol);
+}
+// what's underfoot, for the footstep sound: sand (sand maps' ground, dunes, sandbags), metal (container and trailer roofs), else concrete
+const SAND_TOPS = new Set(['dune', 'sandbag']), METAL_TOPS = new Set(['contR', 'contB', 'contG', 'contY', 'trailer', 'metalwall']);
+function surfaceAt(a) {
+  let top = null;
+  for (const b of BOXES) if (a.x > b.x0 - .05 && a.x < b.x1 + .05 && a.z > b.z0 - .05 && a.z < b.z1 + .05 && Math.abs(b.y1 - a.y) < .15 && (!top || b.y1 > top.y1)) top = b;
+  if (!top) return a.y < .3 && MAP_META.ground === 'sand' ? 'sand' : 'concrete';
+  return METAL_TOPS.has(top.mat) ? 'container' : SAND_TOPS.has(top.mat) ? 'sand' : 'concrete';
 }
 
 // =============== match-end music (synthesized brass, strings and drums) ===============
@@ -2616,7 +2667,7 @@ function shoot() {
   fireCd = w.rate;
   const o = eyePos(me);
   if (w.melee) {
-    vm.knifeT = SLASH_TIME; me.stats.shots++;
+    vm.knifeT = SLASH_TIME; me.stats.shots++; playSnd('knife_swing');   // the two recorded swings take turns
     // a horizontal slash: several rays fanned left to right (and a little up/down), so a hit doesn't need pinpoint aim
     let hit = null;
     for (let i = -4; i <= 4; i++) for (const dp of [-.18, 0, .18]) {
@@ -2630,7 +2681,7 @@ function shoot() {
     if (hit) {
       const back = Math.cos(hit.a.yaw - me.yaw) > .6;
       const killed = netDamage(hit.a, back ? 200 : w.dmg, me, w.n, false);
-      me.stats.hits++; hitMarker(killed); sfx('hit', .8); burst(hit.p, [.6, 0, 0], 10, 2, .4);
+      me.stats.hits++; hitMarker(killed); hitSound(false); bodyHitSound(hit.a, hit.p); burst(hit.p, [.6, 0, 0], 10, 2, .4);
     }
     return;
   }
@@ -2645,7 +2696,7 @@ function shoot() {
   spreadBoost = Math.min(.06, spreadBoost + w.kick * .4);
   recoilP = Math.min(.15, recoilP + w.kick * 2);
   vm.kick = 1; vm.flash.visible = !scopedIn(); vm.flashT = .04;
-  sfx(weapon === 'sniper' || weapon === 'shotgun' ? 'snipe' : 'shot', w.snd);
+  if (!playSnd(weapon + '_shot', { group: 'me', duck: w.auto ? .45 : 1 })) sfx(weapon === 'sniper' || weapon === 'shotgun' ? 'snipe' : 'shot', w.snd);
   if (weapon === 'sniper') { vm.boltT = .9; if (settings.aimMode === 'toggle') setAim(false); }
   if (a.mag === 0 && a.res > 0) setTimeout(() => { if (!me.dead && weapon !== 'knife') startReload(); }, 250);
 }
@@ -2687,11 +2738,13 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
     const killed = netDamage(ah.a, w.dmg * (ah.head ? w.head : 1) * dmgMul * fall, shooter, w.n, ah.head);
     if (shooter.isMe) { me.shotHit = true; if (ah.head && !me.shotHead) me.stats.hs++; me.shotHead = ah.head || me.shotHead; }
     burst(ah.p, [.42, .02, .02], ah.head ? 16 : 8, 2.2, .4);
-    if (shooter.isMe) { hitMarker(killed); if (!w.pellets || Math.random() < .3) sfx(ah.head ? 'hs' : 'hit', .7); }
+    bodyHitSound(ah.a, ah.p);
+    if (shooter.isMe) { hitMarker(killed); hitSound(ah.head); }
   } else if (mh) {
     decal(end, mh.n);
     burst(end, [.75, .7, .6], 5, 3, .3);
   }
+  if (!shooter.isMe && !(ah && ah.a.isMe)) whizCheck(gunPos, end);
 }
 function muzzleOf(a) {
   const u = a.mesh && a.mesh.userData, H = u && u.held && u.held[u.gunKey];
@@ -2768,7 +2821,7 @@ function updateNades(dt) {
       recBoom(c);
       explosionFx(c);
       if (NET.role === 'host') netSend({ t: 'boom', p: c });
-      sfx('boom', 1 / (1 + Math.hypot(me.x - p.x, me.z - p.z) / 12));
+      if (!playSnd('grenade_explosion', { pos: c, ref: 5, rolloff: 1, max: 300 })) sfx('boom', 1 / (1 + Math.hypot(me.x - p.x, me.z - p.z) / 12));
       for (const a of G.actors) {
         if (a.dead) continue;
         if (a !== p.owner && a.team === p.owner.team) continue;
@@ -2999,7 +3052,7 @@ function botFire(a, t) {
   fireRay(a, o, d, WEAPONS.rifle, .85);
   worldFlash(muzzleOf(a), .4);
   const now = performance.now(), dm = Math.hypot(a.x - me.x, a.z - me.z);
-  if (now - lastBotSnd > 45) { lastBotSnd = now; sfx('shot', .9 / (1 + dm / 9)); }
+  if (now - lastBotSnd > 45) { lastBotSnd = now; gunSoundAt(a, 'rifle', .9 / (1 + dm / 9)); }
   a.spotted = Math.max(a.spotted, 1.2);
 }
 
@@ -3561,7 +3614,9 @@ function updateReplay(dt) {
     RP.phase = 'bullet'; RP.bt = 0; RP.t = RP.shot.t;
     if (!RP.bullet) { RP.bullet = bulletMesh(); scene.add(RP.bullet); }
     RP.bullet.visible = true; $('kcScope').hidden = true;
-    worldFlash(RP.shot.a, RP.kind === 'sniper' ? .8 : .5); sfx(RP.kind === 'sniper' ? 'snipe' : 'shot', .9); sfx('slide', .7);
+    worldFlash(RP.shot.a, RP.kind === 'sniper' ? .8 : .5); sfx('slide', .7);
+    const kw = WKEYS.find(w => WEAPONS[w].n === RP.kill.w) || 'rifle';
+    if (!playSnd(kw + '_shot', { vol: .9 })) sfx(RP.kind === 'sniper' ? 'snipe' : 'shot', .9);
     $('killcam').classList.add('bullet');
   }
   if (RP.phase === 'bullet') {
@@ -3573,7 +3628,7 @@ function updateReplay(dt) {
     updateFx(dt * .05);
     if (x >= 1) {
       RP.phase = 'post'; scene.remove(RP.bullet); RP.bullet = null; $('killcam').classList.remove('bullet');
-      burst(RP.shot.b, [.6, 0, 0], 26, 3, .7); sfx(RP.kill.head ? 'hs' : 'hit', 1);
+      burst(RP.shot.b, [.6, 0, 0], 26, 3, .7); if (!playSnd('character_hit')) sfx(RP.kill.head ? 'hs' : 'hit', 1);
       RP.impact = RP.shot.b.slice(); RP.cam = null; RP.look = null;
     }
     return;
@@ -3587,7 +3642,7 @@ function updateReplay(dt) {
     }
     if (prevT < RP.nade.boomT && RP.t >= RP.nade.boomT) {
       if (RP.nade.mesh) { scene.remove(RP.nade.mesh); RP.nade.mesh = null; }
-      explosionFx(RP.nade.p); sfx('boom', 1); RP.phase = 'post'; RP.impact = RP.nade.p.slice(); RP.cam = null; RP.look = null;
+      explosionFx(RP.nade.p); if (!playSnd('grenade_explosion')) sfx('boom', 1); RP.phase = 'post'; RP.impact = RP.nade.p.slice(); RP.cam = null; RP.look = null;
     }
   }
   const st = sampleRec(RP.t);
@@ -3607,7 +3662,8 @@ function updateReplay(dt) {
     if (sh.who === RP.kill.k) RP.kick = 1;
     worldFlash(sh.a, .35); if (sh.vis) tracer(sh.a, sh.b, sh.col);
     const c = camera.position, d = Math.hypot(sh.a[0] - c.x, sh.a[2] - c.z), sw = (RP.proxies[sh.who] && RP.proxies[sh.who].weapon) || 'rifle';
-    sfx(sw === 'sniper' ? 'snipe' : 'shot', .9 * ((WEAPONS[sw] && WEAPONS[sw].snd) || 1) / (1 + d / 9));
+    if (!playSnd(sw + '_shot', { vol: .9 / (1 + d / 9), group: 'rp' + sh.who, duck: WEAPONS[sw] && WEAPONS[sw].auto ? .45 : 1 }))
+      sfx(sw === 'sniper' || sw === 'shotgun' ? 'snipe' : 'shot', .9 * ((WEAPONS[sw] && WEAPONS[sw].snd) || 1) / (1 + d / 9));
   }
   if (!RP.shot && Math.abs(RP.t - RP.kill.t) < step && RP.kill.head) sfx('hs', .6);
   if (!RP.shot && !RP.nade && RP.phase === 'pre' && prevT < RP.kill.t && RP.t >= RP.kill.t) {
@@ -3651,9 +3707,11 @@ function renderReplay(dt) {
     return;
   }
   if (RP.phase === 'pre' && !(RP.nade && RP.nade.mesh)) {
-    // through the killer's eyes, holding the weapon that made the kill
-    camera.position.set(kp.x, kp.y + eyeH(kp), kp.z);
-    camera.rotation.set(kp.pitch, kp.yaw, 0, 'YXZ');
+    // through the killer's eyes (leaning out as recorded, so a shot around a corner isn't seen from behind the wall),
+    // holding the weapon that made the kill
+    const [klx, klz] = leanVec(kp);
+    camera.position.set(kp.x + klx, kp.y + eyeH(kp), kp.z + klz);
+    camera.rotation.set(kp.pitch, kp.yaw, -(kp.leanOff || 0) / LEAN_DIST * LEAN_ROLL, 'YXZ');
     // the weapon in hand at this moment of the recording (switches show up), else the one that made the kill
     const key = kp.weapon && WEAPONS[kp.weapon] ? kp.weapon : RP.kind === 'nade' ? null : (WKEYS.find(w => WEAPONS[w].n === RP.kill.w) || 'rifle');
     if (key !== RP.lastKey) { RP.lastKey = key; RP.adsK = 0; }
@@ -3777,7 +3835,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-13 #41)';
+const GAME_VERSION = '1.0 (10-13 #42)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3790,7 +3848,7 @@ function showMenu() {
       ${grpHtml('game', '게임 설정', '조작 · 감도 · 소리 · 화면', settingsHtml())}
     </div>
     ${GPU_SOFT ? `<p class="err" style="margin:10px 0 0">브라우저의 그래픽 가속이 꺼져 있어서 게임이 아주 느려요. 크롬 설정 → 시스템 → '가능한 경우 그래픽 가속 사용'을 켜고 크롬을 다시 시작해 주세요. 브라우저 설정을 바꾸기 싫다면 Windows용 <a href="https://github.com/Hany36/Hany36/releases/tag/desktop" target="_blank" style="color:inherit;text-decoration:underline">PC 버전(Jammini_FPS_1.0.exe)</a>을 받아 실행해 보세요(평소 브라우저 설정은 그대로 두고, 게임에서만 그래픽카드를 써요).</p>` : ''}
-    <p style="margin:10px 0 0;text-align:center;font-size:13px"><a href="model-preview.html" target="_blank" style="color:inherit;opacity:.8">캐릭터 동작 · 무기 미리보기</a> · <a href="https://github.com/Hany36/Hany36/blob/claude/jolly-pascal-dtmrqz/fps/ASSET_CREDITS.md" target="_blank" style="color:inherit;opacity:.8">에셋 출처 (모델 제작자 · 라이선스)</a></p>
+    <p style="margin:10px 0 0;text-align:center;font-size:13px"><a href="model-preview.html" target="_blank" style="color:inherit;opacity:.8">캐릭터 동작 · 무기 미리보기</a> · <a href="sound-test.html" target="_blank" style="color:inherit;opacity:.8">효과음 테스트</a> · <a href="https://github.com/Hany36/Hany36/blob/claude/jolly-pascal-dtmrqz/fps/ASSET_CREDITS.md" target="_blank" style="color:inherit;opacity:.8">에셋 출처 (모델 제작자 · 라이선스)</a></p>
     <p style="margin:6px 0 0;text-align:center;font-size:12px;opacity:.6">버전 ${GAME_VERSION}${GPU_NAME ? ' · ' + GPU_NAME.replace(/[<>&"]/g, '').replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 70) : ''}</p>`;
   bindSliders();
   $('overlay').hidden = false;
@@ -4099,10 +4157,10 @@ function netOnMessage(m) {
     else if (m.t === 'st') { const fr = G.actors[NET.fr]; if (fr && fr.remote) { fr.net = m; if (!fr.dead) netBuf(fr, m.ts, m.x, m.y, m.z, m.yaw); } }
     else if (m.t === 'hit') {
       const fr = G.actors[NET.fr], v = G.actors[m.i];
-      if (fr && fr.remote && v && !fr.dead && Number.isFinite(m.d)) damage(v, Math.min(400, Math.max(0, m.d)), fr, String(m.w || '').slice(0, 6), !!m.h, fr);
+      if (fr && fr.remote && v && !fr.dead && Number.isFinite(m.d)) { if (!v.dead) bodyHitSound(v); damage(v, Math.min(400, Math.max(0, m.d)), fr, String(m.w || '').slice(0, 6), !!m.h, fr); }
     } else if (m.t === 'shot') {
       const fr = G.actors[NET.fr];
-      if (fr && fr.remote && Array.isArray(m.e)) { tracer(muzzleOf(fr), m.e, 0xffc070); recShot(muzzleOf(fr), m.e, 0xffc070, NET.fr, true); const dm = Math.hypot(fr.x - me.x, fr.z - me.z); sfx('shot', .9 / (1 + dm / 9)); fr.spotted = 1.2; }
+      if (fr && fr.remote && Array.isArray(m.e)) { tracer(muzzleOf(fr), m.e, 0xffc070); recShot(muzzleOf(fr), m.e, 0xffc070, NET.fr, true); const dm = Math.hypot(fr.x - me.x, fr.z - me.z); gunSoundAt(fr, heldWeapon(fr), .9 / (1 + dm / 9)); whizCheck(muzzleOf(fr), m.e); fr.spotted = 1.2; }
     } else if (m.t === 'nade') {
       const fr = G.actors[NET.fr], q = m.p || {};
       if (fr && fr.remote && !fr.dead && [q.x, q.y, q.z, q.vx, q.vy, q.vz].every(Number.isFinite)) {
@@ -4133,7 +4191,7 @@ function netOnMessage(m) {
     resetLoadout(); $('centerMsg').hidden = true;
   } else if (m.t === 'hurt') { if (me && !me.dead) hurtFlash({ x: m.x, z: m.z }); }
   else if (m.t === 'feed') { const k = G.actors[m.k], v = G.actors[m.v]; if (k && v) pushFeedLocal(k, v, m.w, m.h); }
-  else if (m.t === 'boom') { if (Array.isArray(m.p)) { recBoom(m.p); explosionFx(m.p); sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
+  else if (m.t === 'boom') { if (Array.isArray(m.p)) { recBoom(m.p); explosionFx(m.p); lastBoomAt = performance.now(); if (!playSnd('grenade_explosion', { pos: m.p, ref: 5, rolloff: 1, max: 300 })) sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
   else if (m.t === 'end') { if (Array.isArray(m.s)) { G.score.blue = m.s[0]; G.score.red = m.s[1]; } if (G.state !== 'ending' && G.state !== 'over') { G.state = 'play'; endMatch(); } }
   else if (m.t === 'bye') netLost();
 }
@@ -4203,6 +4261,9 @@ function netHostTick(dt) {
     n: G.nades.map(p => [R2(p.x), R2(p.y), R2(p.z)]), sh: NET.shots });
   NET.shots = [];
 }
+// a health drop seen in a snapshot sounds as a hit unless the hit was already heard here (my own shot) or a grenade just went off
+let lastBoomAt = 0;
+const snapHitOk = a => performance.now() - (a._hitSnd || 0) > 250 && performance.now() - lastBoomAt > 400;
 // ---- client side: send my state, mirror the host
 function netApplySnap(m) {
   if (!Array.isArray(m.a) || m.a.length !== G.actors.length) return;
@@ -4212,6 +4273,7 @@ function netApplySnap(m) {
     a.kills = r[9]; a.deaths = r[10]; if (r[20] !== undefined) a.dmg = r[20];
     const wasDead = a.dead, nowDead = !!r[8];
     if (a.isMe) {
+      if (r[7] < a.hp - .5 && r[7] > 0 && snapHitOk(a)) bodyHitSound(a);
       a.hp = r[7]; a.protect = r[12] ? Math.max(a.protect, .1) : 0;
       if (nowDead && !wasDead) {
         a.dead = true; a.hp = 0; setAim(false); cancelNadeAim(); dropPickup(a);
@@ -4224,6 +4286,7 @@ function netApplySnap(m) {
     if (!nowDead) { if (wasDead) a.nb = []; netBuf(a, m.ts, r[0], r[1], r[2], r[3]); }
     if (nowDead && !wasDead) { a.dead = true; a.deathT = 0; dropPickup({ x: r[0], y: r[1], z: r[2] }); }
     else if (!nowDead && wasDead) { a.dead = false; a.x = r[0]; a.y = r[1]; a.z = r[2]; a.yaw = r[3]; a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.deathT = 0; }
+    if (r[7] < a.hp - .5 && r[7] > 0 && snapHitOk(a)) bodyHitSound(a);
     a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]]; a.prone = !!r[18]; a.air = !!r[19]; a.sneak = !!r[21];
   });
   for (const a of G.actors) a.prevKills = a.kills;
@@ -4238,7 +4301,8 @@ function netApplySnap(m) {
     { const vis = Math.random() < .5; if (vis) tracer(muzzleOf(a), [s[1], s[2], s[3]], 0xffc070); recShot(muzzleOf(a), [s[1], s[2], s[3]], 0xffc070, s[0], vis); }
     worldFlash(muzzleOf(a), .35);
     if (a.team !== me.team) a.spotted = Math.max(a.spotted || 0, 1.2);
-    if (now - lastBotSnd > 45) { lastBotSnd = now; sfx('shot', .9 / (1 + Math.hypot(a.x - me.x, a.z - me.z) / 9)); }
+    if (now - lastBotSnd > 45) { lastBotSnd = now; gunSoundAt(a, heldWeapon(a), .9 / (1 + Math.hypot(a.x - me.x, a.z - me.z) / 9)); }
+    whizCheck(muzzleOf(a), [s[1], s[2], s[3]]);
   }
   NET.lastSnap = now;
 }
