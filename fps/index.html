@@ -48,6 +48,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .scope { position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0 34vmin, rgba(0,0,0,.35) 34.2vmin, #000 35vmin); }
 .scope::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.9); }
 .scope::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(0,0,0,.9); }
+.scope .zoomTag { position: absolute; left: 50%; top: calc(50% + 27vmin); transform: translateX(-50%); padding: 2px 9px; border-radius: 10px; background: rgba(0,0,0,.45); color: rgba(255,255,255,.85); font: 600 13px var(--font-num); white-space: nowrap; }
 .hurt { position: fixed; inset: 0; box-shadow: inset 0 0 140px 40px rgba(190, 20, 20, .55); opacity: 0; }
 
 .score { position: fixed; left: 50%; top: calc(8px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: flex; align-items: stretch; border-radius: 8px; overflow: hidden; background: var(--hud); }
@@ -230,7 +231,7 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
 <div class="keyguide" id="keyGuide" hidden></div>
 <div class="killcam" id="killcam" hidden><div class="kcbar top"></div><div class="kcbar bot"></div><div class="scope" id="kcScope" hidden></div><div class="kctag" id="kcTag">FINAL KILL</div><div class="kcwho" id="kcWho"></div><div class="kcskip">Space · 클릭으로 건너뛰기</div></div>
 <div class="hud" id="hud" hidden>
-  <div class="scope" id="scope" hidden></div>
+  <div class="scope" id="scope" hidden><span class="zoomTag" id="scopeZoom"></span></div>
   <div class="hurt" id="hurt"></div>
   <div class="cross" id="cross"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
   <div class="hitm" id="hitm"></div>
@@ -2042,6 +2043,10 @@ const VM_HIP = [.17, -.19, -.4];
 // a scoped rifle first comes up to the eye (eyepiece SCOPE_EYE in front of it); the scope view takes over once it's nearly there
 const SCOPE_EYE = .09, SCOPE_IN = .9;
 function scopedIn() { return aiming && !!WEAPONS[weapon].scope && (vm.adsK || 0) > SCOPE_IN; }
+// scope magnification: the mouse wheel steps through these while looking through the scope (5.5x is the old fixed zoom)
+const SCOPE_MAGS = [3, 4, 5.5, 8, 12];
+let scopeStep = 2, wheelAcc = 0;
+const scopeFov = () => 2 * Math.atan(Math.tan(37.5 * Math.PI / 180) / SCOPE_MAGS[scopeStep]) * 180 / Math.PI;   // vertical fov vs the 75° view
 // a knife slash, inside to outside: the hand sweeps from across the body (left) out to the right with the tip and the edge leading.
 // s: 0..1 progress (-1: no swing). Offsets for the first-person weapon's position and rotation
 // The swing takes the first 70% of SLASH_TIME, then the hand eases back to where it rests.
@@ -2182,7 +2187,7 @@ function audioInit() {
 }
 // ---- footsteps: everyone walking on the ground makes steps you hear from where they are (3D panning);
 // crouching is nearly silent, sprinting loud. Sand sounds softer and duller than concrete.
-const STEP = { len: { prone: .6, crouch: .55, walk: .78, run: 2.0 }, vol: { prone: .05, crouch: .1, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
+const STEP = { len: { prone: .6, crouch: .55, walk: .78, run: 2.0 }, vol: { prone: .05, crouch: .1, sneak: .14, slow: .4, walk: .7, run: 1 }, mine: .35, range: 34 };
 function setPanner(pn, x, y, z) { if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = y; pn.positionZ.value = z; } else pn.setPosition(x, y, z); }
 function footstep(a, vol, land) {
   if (!AC || settings.volume <= 0 || vol < .02) return;
@@ -2216,9 +2221,9 @@ function stepSounds(dt) {
     a._air = !ground;
     if (!ground) continue;
     const sp = d / dt, sprint = a.isMe ? me.sprint : a.sprintF || sp > 6.5;
-    const kind = a.prone ? 'prone' : a.crouch ? 'crouch' : sprint ? 'run' : (a.isMe ? aiming : a.aiming) && sp < 4 ? 'slow' : 'walk';
+    const kind = a.prone ? 'prone' : a.crouch ? 'crouch' : sprint ? 'run' : (a.isMe ? me.sneak : a.sneak) ? 'sneak' : (a.isMe ? aiming : a.aiming) && sp < 4 ? 'slow' : 'walk';
     a._sd += d;
-    const len = STEP.len[kind === 'slow' ? 'walk' : kind];
+    const len = STEP.len[kind === 'slow' || kind === 'sneak' ? 'walk' : kind];
     if (a._sd >= len) { a._sd -= len; if (a._sd > len) a._sd = 0; footstep(a, STEP.vol[kind] * (a.isMe ? STEP.mine : 1) * (.85 + Math.random() * .3)); }
   }
 }
@@ -2475,6 +2480,8 @@ function moveAxis(a, ax, d, h) {
 const keys = {};
 const joy = { x: 0, y: 0 };
 let jumpHeld = false, touchCrouch = false, crouchToggle = false;
+// Ctrl: walk slowly and quietly. Only in the PC version: in a browser, Ctrl with W would close the tab
+const CTRL_WALK = /Electron\//.test(navigator.userAgent);
 // Lean: me.lean eases toward -1 (left), 0 or 1 (right); leanOff is the sideways eye offset in meters after wall checks.
 let leanToggle = 0, touchLean = 0;
 const LEAN_DIST = .5, LEAN_ROLL = .2;
@@ -2541,8 +2548,10 @@ function updatePlayer(dt) {
   else if (!wantCrouch && me.crouch && !collidesAt(me.x, me.y, me.z, 1.75)) me.crouch = false;
   else if (wantCrouch) me.crouch = true;
   // aiming and shooting win over sprinting: right- or left-click while sprinting drops the sprint
-  me.sprint = !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !me.prone && proneT <= 0 && !aiming && !triggerHeld && slideT <= 0 && Math.abs(me.lean || 0) < .3;
-  const spd = proneT > 0 ? 0 : me.prone ? (aiming ? .8 : 1.1) : (me.crouch ? 2.4 : aiming ? 3.2 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
+  const quiet = CTRL_WALK && !!(keys.ControlLeft || keys.ControlRight);
+  me.sneak = quiet && !me.crouch && !me.prone && slideT <= 0;
+  me.sprint = !quiet && !!(keys.ShiftLeft || keys.ShiftRight) && fz > .2 && !me.crouch && !me.prone && proneT <= 0 && !aiming && !triggerHeld && slideT <= 0 && Math.abs(me.lean || 0) < .3;
+  const spd = proneT > 0 ? 0 : me.prone ? (aiming ? .8 : 1.1) : (me.crouch ? 2.4 : me.sneak ? 2.6 : aiming ? 3.2 : me.sprint ? 7.4 : 5.4) * (weapon === 'knife' ? 1.15 : WEAPONS[weapon].mob || 1);
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const tvx = (-sy * fz + cy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1), tvz = (-cy * fz - sy * fx) * spd * (Math.abs(me.lean || 0) > .3 ? .6 : 1);
   const k = Math.min(1, dt * (me.ground ? 12 : 3));
@@ -3047,6 +3056,7 @@ function hud(dt) {
   $('wName').textContent = `${w.n} · 수류탄 ${nades}`;
   $('reloadMsg').hidden = !(reloadT > 0);
   $('scope').hidden = !(scopedIn() && !me.dead);
+  if (!$('scope').hidden) $('scopeZoom').textContent = `${SCOPE_MAGS[scopeStep]}배 · 휠로 배율 조절`;
   // hip fire: spread lines (sniper shows only the center dot); aiming uses the weapon's own sights (the red dot lives in the reflex sight)
   const cross = $('cross');
   cross.style.visibility = aiming || me.dead ? 'hidden' : 'visible';
@@ -3111,9 +3121,12 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyC') slideHoldC = false; if (e.code === 'KeyG') releaseNadeAim(); });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; triggerHeld = false; if (settings.aimMode === 'hold') setAim(false); });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+// the mouse wheel only zooms the sniper scope (one notch, one step); it no longer switches weapons
 canvas.addEventListener('wheel', e => {
-  if (!playing() || me.dead) return;
-  const sl = slots(), i = sl.indexOf(weapon); selectWeapon(sl[(i + (e.deltaY > 0 ? 1 : -1) + sl.length) % sl.length]);
+  if (!playing() || me.dead || !scopedIn()) { wheelAcc = 0; return; }
+  wheelAcc += e.deltaY;
+  if (Math.abs(wheelAcc) < 50) return;
+  scopeStep = clamp(scopeStep + (wheelAcc < 0 ? 1 : -1), 0, SCOPE_MAGS.length - 1); wheelAcc = 0;
 }, { passive: true });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
@@ -3122,7 +3135,8 @@ document.addEventListener('pointerlockchange', () => {
 });
 function look(dx, dy, k) {
   const w = WEAPONS[weapon];
-  const zoomK = aiming ? (scopedIn() ? settings.scopeSens * .35 : settings.adsSens * .7) : 1;   // scope and iron-sight sensitivities are separate
+  // scope and iron-sight sensitivities are separate; through the scope, a higher magnification turns slower
+  const zoomK = aiming ? (scopedIn() ? settings.scopeSens * .35 * scopeFov() / 16 : settings.adsSens * .7) : 1;
   me.yaw -= dx * k * settings.sens * zoomK;
   const p = me.pitch - dy * k * settings.sens * zoomK;
   // lying down the view can't tilt past PRONE_PITCH (if it is still easing in, it may only come back toward the range)
@@ -3263,9 +3277,9 @@ function bindSliders() {
 }
 // key guide panel: F1 in a match (the game keeps running), or the button in the menu / settings
 const KEY_GUIDE = [
-  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께)'], [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
+  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께)'], ...(CTRL_WALK ? [[['Ctrl'], '천천히 걷기 (발소리 작게)']] : []), [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
   [['우클릭'], '정조준 · 스코프 (달리기 풀림)'], [['R'], '재장전'], [['1', '2', '3'], '주무기 · 보조무기 · 칼'], [['X'], '이전 무기'],
-  [['휠'], '무기 바꾸기'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 (누르고 조준, 떼면 던짐)'],
+  [['휠'], '저격 스코프 배율 (3 · 4 · 5.5 · 8 · 12배)'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 (누르고 조준, 떼면 던짐)'],
   [['Space'], '점프'], [['C'], '앉기 · 달리면서 누르면 슬라이딩'], [['Z'], '엎드리기 (Z·Space: 일어서기, C: 앉기)'], [['Tab'], '점수판'], [['Enter'], '채팅'],
   [['F1'], '키 가이드 열기 · 닫기'], [['F11'], '전체 화면 (설정에서도 가능)'], [['Esc'], '일시정지'],
 ];
@@ -3763,7 +3777,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-12 #40)';
+const GAME_VERSION = '1.0 (10-13 #41)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4173,7 +4187,7 @@ function netRemote(a, dt) {
     if (s) { a.x = s[1]; a.y = s[2]; a.z = s[3]; a.yaw = s[4]; }
     else { const k = Math.min(1, dt * 15); a.x += (m.x - a.x) * k; a.y += (m.y - a.y) * k; a.z += (m.z - a.z) * k; a.yaw += wrap(m.yaw - a.yaw) * k; }
     a.pitch = m.pitch; a.crouch = !!m.c; a.leanOff = Number.isFinite(m.l) ? m.l : 0;
-    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp; a.sliding = !!m.sl; if (WKEYS[m.wp]) a.weapon = WKEYS[m.wp]; a.prone = !!m.pr; a.air = !!m.ar;
+    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp; a.sneak = !!m.wk; a.sliding = !!m.sl; if (WKEYS[m.wp]) a.weapon = WKEYS[m.wp]; a.prone = !!m.pr; a.air = !!m.ar;
   }
   a.protect = Math.max(0, a.protect - dt);
   animateSoldier(a, dt, Math.hypot(a.vx || 0, a.vz || 0));
@@ -4185,7 +4199,7 @@ function netHostTick(dt) {
   if (NET.sendT > 0 || !(NET.conn && NET.conn.open)) return;
   NET.sendT = .05;
   netSend({ t: 'sn', ts: +netNow().toFixed(3), tm: R2(G.time), s: [G.score.blue, G.score.red],
-    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0, Math.round(a.dmg || 0)]),
+    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0, Math.round(a.dmg || 0), (a.isMe ? me.sneak : a.sneak) ? 1 : 0]),
     n: G.nades.map(p => [R2(p.x), R2(p.y), R2(p.z)]), sh: NET.shots });
   NET.shots = [];
 }
@@ -4210,7 +4224,7 @@ function netApplySnap(m) {
     if (!nowDead) { if (wasDead) a.nb = []; netBuf(a, m.ts, r[0], r[1], r[2], r[3]); }
     if (nowDead && !wasDead) { a.dead = true; a.deathT = 0; dropPickup({ x: r[0], y: r[1], z: r[2] }); }
     else if (!nowDead && wasDead) { a.dead = false; a.x = r[0]; a.y = r[1]; a.z = r[2]; a.yaw = r[3]; a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.deathT = 0; }
-    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]]; a.prone = !!r[18]; a.air = !!r[19];
+    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]]; a.prone = !!r[18]; a.air = !!r[19]; a.sneak = !!r[21];
   });
   for (const a of G.actors) a.prevKills = a.kills;
   // grenades in flight
@@ -4249,7 +4263,7 @@ function netClientStep(dt) {
   NET.sendT -= dt;
   if (NET.sendT <= 0) {
     NET.sendT = .05;
-    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0, sl: slideT > 0 ? 1 : 0, wp: WKEYS.indexOf(weapon), pr: me.prone ? 1 : 0, ar: me.ground ? 0 : 1 });
+    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0, wk: me.sneak ? 1 : 0, sl: slideT > 0 ? 1 : 0, wp: WKEYS.indexOf(weapon), pr: me.prone ? 1 : 0, ar: me.ground ? 0 : 1 });
   }
 }
 // ping every 2 s, and whether the browsers talk directly or through PeerJS's relay server (shown top-left in matches)
@@ -4375,7 +4389,7 @@ function render(dt) {
       camera.rotation.set(me.pitch + (-.75 - me.pitch) * endK, ry, (dead ? .6 : 0) * (1 - endK), 'YXZ');
     }
     const w = WEAPONS[weapon];
-    const targetFov = endK > 0 ? 70 : aiming && !w.melee ? (w.scope && !scopedIn() ? 62 : w.fov) : 75 + (me.sprint ? 5 : 0) + (slideT > 0 ? 8 : 0);
+    const targetFov = endK > 0 ? 70 : aiming && !w.melee ? (w.scope ? (scopedIn() ? scopeFov() : 62) : w.fov) : 75 + (me.sprint ? 5 : 0) + (slideT > 0 ? 8 : 0);
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14);
     camera.updateProjectionMatrix();
     vm.kick = Math.max(0, (vm.kick || 0) - dt * 10);
