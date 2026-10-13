@@ -25,7 +25,7 @@
       hit:     { file: 'One_short_bullet-hit_#3-1791853437882.mp3', clip: [0, .45], fadeIn: 0, fadeOut: 80, hp: 45, norm: 7.8, note: '에너지의 77%가 40Hz 아래 초저음이라 45Hz 아래를 걸러냄' },
       stepA:   { file: 'One_single_footstep__#3-1791854574133.mp3', clip: [0, .50], fadeIn: 0, fadeOut: 80, hp: 0, norm: -4.8, note: '모래 (저장소 주인이 들어 보고 확인)' },
       stepB:   { file: 'One_single_footstep__#3-1791854605619.mp3', clip: [0, .50], fadeIn: 0, fadeOut: 80, hp: 0, norm: 8.1, note: '컨테이너 (저장소 주인이 들어 보고 확인). 아주 작게 녹음됨(최고 -21dBFS), 파일 끝에서 소리가 잘려 있음' },
-      stepC:   { file: 'One_single_loud,_fir_#3-1791854657905.mp3', clip: [0, .45], fadeIn: 0, fadeOut: 60, hp: 45, norm: 6.0, note: '콘크리트 (저장소 주인이 들어 보고 확인). 소리의 95%가 45Hz 아래, 80Hz 위는 거의 없어서 귀에는 작게 들림 → 새 파일 필요' },
+      stepC:   { file: 'One_single_loud,_fir_#3-1791854657905.mp3', clip: [0, .45], fadeIn: 0, fadeOut: 60, hp: 45, norm: 6.0, note: '콘크리트용으로 만든 파일. 소리의 95%가 45Hz 아래라 귀에 작게 들려서 쓰지 않음(콘크리트는 예전 합성 발소리)' },
     },
     // use: the clips the sound plays (several: they take turns); candidates: files not yet told apart, picked on the test page
     sounds: {
@@ -39,8 +39,8 @@
       grenade_explosion: { cat: 'combat', use: ['grenade'], gain: 1 },
       character_hit:     { cat: 'combat', use: ['hit'], gain: 1 },
       step_sand:         { cat: 'footsteps', use: ['stepA'], candidates: ['stepA', 'stepB', 'stepC'], gain: 1 },
-      // the file is almost all deep rumble: as loud as the peak allows (about -1.4 dBFS); a new recording is wanted
-      step_concrete:     { cat: 'footsteps', use: ['stepC'], candidates: ['stepA', 'stepB', 'stepC'], gain: 1.25, check: '이 파일은 소리 대부분이 아주 낮은 저음이라 귀에는 작게 들려요. 새 콘크리트 발소리 파일을 기다리는 중이에요.' },
+      // concrete keeps the game's own synthesized step (the owner's choice: the recorded one is almost all deep rumble)
+      step_concrete:     { cat: 'footsteps', use: [], candidates: ['stepA', 'stepB', 'stepC'], gain: 1 },
       step_container:    { cat: 'footsteps', use: ['stepB'], candidates: ['stepA', 'stepB', 'stepC'], gain: 1 },
     },
   };
