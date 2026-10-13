@@ -63,7 +63,7 @@
   <h2>카테고리 볼륨</h2>
   <div class="card cats" id="cats"></div>
 
-  <h2>효과음 14종</h2>
+  <h2>효과음 13종</h2>
   <div class="card" id="list"></div>
 
   <h2>저장 · 공유</h2>
@@ -78,11 +78,11 @@
 const $ = id => document.getElementById(id), C = SND.CONFIG;
 const LABEL = {
   rifle_shot: ['소총 발사', '총성'], smg_shot: ['기관단총 발사', '총성'], shotgun_shot: ['산탄총 발사', '총성'], pistol_shot: ['권총 발사', '총성'],
-  sniper_shot: ['저격총 발사', '총성'], revolver_shot: ['리볼버 발사', '총성'], knife_swing: ['칼 휘두르기', '전투'], bullet_whiz: ['총탄 스침', '전투'],
+  sniper_shot: ['저격총 발사', '총성'], revolver_shot: ['리볼버 발사', '총성'], knife_swing: ['칼 휘두르기', '전투'],
   grenade_explosion: ['수류탄 폭발', '전투'], character_hit: ['피격음', '전투'], hitmarker: ['히트마커 (명중 확인)', '히트마커'],
   step_sand: ['발소리 · 모래', '발소리'], step_concrete: ['발소리 · 콘크리트', '발소리'], step_container: ['발소리 · 컨테이너 지붕', '발소리'],
 };
-const CATS = [['masterVolume', '전체 (master)'], ['gunshotsVolume', '총성'], ['footstepsVolume', '발소리'], ['combatEffectsVolume', '전투 효과음 (칼·스침·폭발·피격)'], ['hitmarkerVolume', '히트마커']];
+const CATS = [['masterVolume', '전체 (master)'], ['gunshotsVolume', '총성'], ['footstepsVolume', '발소리'], ['combatEffectsVolume', '전투 효과음 (칼·폭발·피격)'], ['hitmarkerVolume', '히트마커']];
 const clipFile = ck => C.clips[ck].file;
 const pct = v => Math.round(v * 100) + '%', dbs = v => (v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-∞') + ' dB';
 let ctx = null, out = null, an = null, peakDb = -120;

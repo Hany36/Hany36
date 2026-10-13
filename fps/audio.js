@@ -14,7 +14,6 @@
     dir: 'assets/sounds/source/',
     // clip: [start, end] seconds in the file, fade in/out ms, hp: high-pass Hz (0 = none), norm: gain in dB from the analysis
     clips: {
-      whiz:    { file: 'A_realistic_sound_ef_#2-1791854401666.mp3', clip: [0, .30], fadeIn: 0, fadeOut: 60, hp: 0, norm: -13.7 },
       knifeA:  { file: 'One_fast_knife_swing_#2-1791853040873.mp3', clip: [.10, .45], fadeIn: 5, fadeOut: 60, hp: 0, norm: -10.2, note: '파일 안의 첫 번째 휘두르기' },
       knifeB:  { file: 'One_fast_knife_swing_#2-1791853040873.mp3', clip: [1.68, 1.98], fadeIn: 5, fadeOut: 60, hp: 0, norm: -10.6, note: '파일 안의 두 번째 휘두르기' },
       grenade: { file: 'One_hand_grenade_exp_#4-1791853120591.mp3', clip: [0, 1.75], fadeIn: 0, fadeOut: 300, hp: 0, norm: -3.7 },
@@ -34,12 +33,11 @@
     sounds: {
       rifle_shot:        { cat: 'gunshots', use: ['rifle'], gain: 1, check: '0.15초 지점에 첫 소리와 거의 같은 크기의 충격음이 한 번 더 있어요. 두 발이 들어 있는지 들어 보고 확인해 주세요.' },
       smg_shot:          { cat: 'gunshots', use: ['smg'], gain: 1 },
-      shotgun_shot:      { cat: 'gunshots', use: ['shotgun'], gain: 1 },
-      pistol_shot:       { cat: 'gunshots', use: ['pistol'], gain: 1 },
+      shotgun_shot:      { cat: 'gunshots', use: ['shotgun'], gain: 1.1 },   // 110%, 80%: the owner's ears (2026-10-13)
+      pistol_shot:       { cat: 'gunshots', use: ['pistol'], gain: .8 },
       sniper_shot:       { cat: 'gunshots', use: [], candidates: ['pw1', 'pw2'], gain: 1, check: 'One_isolated_powerfu… 두 파일 중 어느 것이 저격총인지 구분하지 못했어요. 들어 보고 골라 주세요. 고르기 전에는 예전 합성음이 나와요.' },
       revolver_shot:     { cat: 'gunshots', use: [], candidates: ['pw1', 'pw2'], gain: 1, check: 'One_isolated_powerfu… 두 파일 중 어느 것이 리볼버인지 구분하지 못했어요. 들어 보고 골라 주세요. 고르기 전에는 예전 합성음이 나와요.' },
       knife_swing:       { cat: 'combat', use: ['knifeA', 'knifeB'], gain: 1, check: '파일 하나에 휘두르기가 두 번 들어 있어서 두 트랙(A, B)으로 잘라 번갈아 써요.' },
-      bullet_whiz:       { cat: 'combat', use: ['whiz'], gain: 1 },
       grenade_explosion: { cat: 'combat', use: ['grenade'], gain: 1 },
       character_hit:     { cat: 'combat', use: ['hit'], gain: 1 },
       hitmarker:         { cat: 'hitmarker', use: ['punch'], gain: 1 },
@@ -49,7 +47,7 @@
     },
   };
   const CAT_KEY = { gunshots: 'gunshotsVolume', footsteps: 'footstepsVolume', combat: 'combatEffectsVolume', hitmarker: 'hitmarkerVolume' };
-  const STORE = 'jammini-audio-v1';
+  const STORE = 'jammini-audio-v2';
   const DEFAULTS = JSON.parse(JSON.stringify(AUDIO_CONFIG));
 
   // saved changes from the test page: volumes, per-sound gain and file choice
@@ -65,9 +63,14 @@
     } catch (e) { /* storage unavailable: defaults */ }
   }
   function saveOverrides() {
-    const o = { sounds: {} };
-    for (const k of ['masterVolume', ...Object.values(CAT_KEY)]) o[k] = AUDIO_CONFIG[k];
-    for (const k in AUDIO_CONFIG.sounds) o.sounds[k] = { gain: AUDIO_CONFIG.sounds[k].gain, use: AUDIO_CONFIG.sounds[k].use.slice() };
+    const o = { sounds: {} }, D = DEFAULTS;
+    for (const k of ['masterVolume', ...Object.values(CAT_KEY)]) if (AUDIO_CONFIG[k] !== D[k]) o[k] = AUDIO_CONFIG[k];
+    for (const k in AUDIO_CONFIG.sounds) {
+      const s = AUDIO_CONFIG.sounds[k], d = D.sounds[k], v = {};
+      if (s.gain !== d.gain) v.gain = s.gain;
+      if (s.use.join() !== d.use.join()) v.use = s.use.slice();
+      if (Object.keys(v).length) o.sounds[k] = v;
+    }
     try { localStorage.setItem(STORE, JSON.stringify(o)); } catch (e) { /* not saved */ }
     return o;
   }

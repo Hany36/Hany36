@@ -2277,7 +2277,7 @@ function soundWarn(list) {
   document.body.appendChild(el); setTimeout(() => el.remove(), 7000);
 }
 // my hit confirmation: once per shot (a shotgun's pellets landing together make one sound), a headshot a little louder
-let lastHitSnd = 0, lastWhiz = 0;
+let lastHitSnd = 0;
 function hitSound(head) {
   const now = performance.now(); if (now - lastHitSnd < 70) return; lastHitSnd = now;
   if (!playSnd('hitmarker', { vol: head ? 1.3 : 1 })) sfx(head ? 'hs' : 'hit', .7);
@@ -2287,23 +2287,13 @@ function bodyHitSound(victim, p) {
   const now = performance.now(); if (now - (victim._hitSnd || 0) < 70) return; victim._hitSnd = now;
   playSnd('character_hit', victim.isMe ? {} : { pos: p || [victim.x, victim.y + 1.2, victim.z], ref: 3, rolloff: 1.2, max: 60 });
 }
-// someone else's bullet passing close to my head: not one that hits me, stops short of me, or is fired from right beside me
-const WHIZ_DIST = 1.6;
-function whizCheck(a, b) {
-  if (!me || me.dead || !a || !b) return;
-  const h = eyePos(me), d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-  if (L2 < 1) return;
-  const t = ((h[0] - a[0]) * d[0] + (h[1] - a[1]) * d[1] + (h[2] - a[2]) * d[2]) / L2;
-  if (t <= 0 || t >= 1 || t * Math.sqrt(L2) < 3) return;
-  const c = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t], dist = Math.hypot(c[0] - h[0], c[1] - h[1], c[2] - h[2]);
-  const now = performance.now(); if (dist > WHIZ_DIST || now - lastWhiz < 120) return; lastWhiz = now;
-  playSnd('bullet_whiz', { pos: c, ref: 1, rolloff: 1, vol: .6 + .4 * (1 - dist / WHIZ_DIST) });
-}
 // another soldier's gunshot, heard from where they are; one shooter's automatic fire ducks the tails of its own earlier shots
 function gunSoundAt(a, key, oldVol) {
   if (!playSnd(key + '_shot', { pos: muzzleOf(a), ref: 4, rolloff: 1, max: 250, group: 'a' + G.actors.indexOf(a), duck: WEAPONS[key] && WEAPONS[key].auto ? .45 : 1 }))
     sfx(key === 'sniper' || key === 'shotgun' ? 'snipe' : 'shot', oldVol);
 }
+// a grenade is heard full strength within 8 m and fades gently: about -4 dB at 15 m, -8 dB at 27 m, -12 dB at 50 m
+const NADE_SND = p => ({ pos: p, ref: 8, rolloff: .6, max: 400 });
 // what's underfoot, for the footstep sound: sand (sand maps' ground, dunes, sandbags), metal (container and trailer roofs), else concrete
 const SAND_TOPS = new Set(['dune', 'sandbag']), METAL_TOPS = new Set(['contR', 'contB', 'contG', 'contY', 'trailer', 'metalwall']);
 function surfaceAt(a) {
@@ -2744,7 +2734,6 @@ function fireRay(shooter, o, d, w, dmgMul = 1) {
     decal(end, mh.n);
     burst(end, [.75, .7, .6], 5, 3, .3);
   }
-  if (!shooter.isMe && !(ah && ah.a.isMe)) whizCheck(gunPos, end);
 }
 function muzzleOf(a) {
   const u = a.mesh && a.mesh.userData, H = u && u.held && u.held[u.gunKey];
@@ -2821,7 +2810,7 @@ function updateNades(dt) {
       recBoom(c);
       explosionFx(c);
       if (NET.role === 'host') netSend({ t: 'boom', p: c });
-      if (!playSnd('grenade_explosion', { pos: c, ref: 5, rolloff: 1, max: 300 })) sfx('boom', 1 / (1 + Math.hypot(me.x - p.x, me.z - p.z) / 12));
+      if (!playSnd('grenade_explosion', NADE_SND(c))) sfx('boom', 1 / (1 + Math.hypot(me.x - p.x, me.z - p.z) / 12));
       for (const a of G.actors) {
         if (a.dead) continue;
         if (a !== p.owner && a.team === p.owner.team) continue;
@@ -3835,7 +3824,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-13 #42)';
+const GAME_VERSION = '1.0 (10-13 #43)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4160,7 +4149,7 @@ function netOnMessage(m) {
       if (fr && fr.remote && v && !fr.dead && Number.isFinite(m.d)) { if (!v.dead) bodyHitSound(v); damage(v, Math.min(400, Math.max(0, m.d)), fr, String(m.w || '').slice(0, 6), !!m.h, fr); }
     } else if (m.t === 'shot') {
       const fr = G.actors[NET.fr];
-      if (fr && fr.remote && Array.isArray(m.e)) { tracer(muzzleOf(fr), m.e, 0xffc070); recShot(muzzleOf(fr), m.e, 0xffc070, NET.fr, true); const dm = Math.hypot(fr.x - me.x, fr.z - me.z); gunSoundAt(fr, heldWeapon(fr), .9 / (1 + dm / 9)); whizCheck(muzzleOf(fr), m.e); fr.spotted = 1.2; }
+      if (fr && fr.remote && Array.isArray(m.e)) { tracer(muzzleOf(fr), m.e, 0xffc070); recShot(muzzleOf(fr), m.e, 0xffc070, NET.fr, true); const dm = Math.hypot(fr.x - me.x, fr.z - me.z); gunSoundAt(fr, heldWeapon(fr), .9 / (1 + dm / 9)); fr.spotted = 1.2; }
     } else if (m.t === 'nade') {
       const fr = G.actors[NET.fr], q = m.p || {};
       if (fr && fr.remote && !fr.dead && [q.x, q.y, q.z, q.vx, q.vy, q.vz].every(Number.isFinite)) {
@@ -4191,7 +4180,7 @@ function netOnMessage(m) {
     resetLoadout(); $('centerMsg').hidden = true;
   } else if (m.t === 'hurt') { if (me && !me.dead) hurtFlash({ x: m.x, z: m.z }); }
   else if (m.t === 'feed') { const k = G.actors[m.k], v = G.actors[m.v]; if (k && v) pushFeedLocal(k, v, m.w, m.h); }
-  else if (m.t === 'boom') { if (Array.isArray(m.p)) { recBoom(m.p); explosionFx(m.p); lastBoomAt = performance.now(); if (!playSnd('grenade_explosion', { pos: m.p, ref: 5, rolloff: 1, max: 300 })) sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
+  else if (m.t === 'boom') { if (Array.isArray(m.p)) { recBoom(m.p); explosionFx(m.p); lastBoomAt = performance.now(); if (!playSnd('grenade_explosion', NADE_SND(m.p))) sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
   else if (m.t === 'end') { if (Array.isArray(m.s)) { G.score.blue = m.s[0]; G.score.red = m.s[1]; } if (G.state !== 'ending' && G.state !== 'over') { G.state = 'play'; endMatch(); } }
   else if (m.t === 'bye') netLost();
 }
@@ -4302,7 +4291,6 @@ function netApplySnap(m) {
     worldFlash(muzzleOf(a), .35);
     if (a.team !== me.team) a.spotted = Math.max(a.spotted || 0, 1.2);
     if (now - lastBotSnd > 45) { lastBotSnd = now; gunSoundAt(a, heldWeapon(a), .9 / (1 + Math.hypot(a.x - me.x, a.z - me.z) / 9)); }
-    whizCheck(muzzleOf(a), [s[1], s[2], s[3]]);
   }
   NET.lastSnap = now;
 }
