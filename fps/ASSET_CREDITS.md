@@ -95,7 +95,7 @@
 | `A_realistic_sound_ef_#2-1791854401666.mp3` | (사용 안 함) bullet_whiz (총탄 스침) | 0.60초 | – | 2026-10-13 저장소 주인 요청으로 총탄 스침 소리를 뺌. 파일은 원본 보존 |
 | `One_fast_knife_swing_#2-1791853040873.mp3` | knife_swing (칼, 트랙 A·B를 번갈아) | 3.00초 | A 0.10–0.45초, B 1.68–1.98초 | 파일 하나에 휘두르기가 두 번 들어 있음 |
 | `One_hand_grenade_exp_#4-1791853120591.mp3` | grenade_explosion (수류탄) | 2.00초 | 0–1.75초 | |
-| `One_isolated_assault_#4-1791852873626.mp3` | rifle_shot (소총) | 1.00초 | 0–0.60초 | 0.15초 지점에 거의 같은 크기의 충격음이 한 번 더 있음(두 발인지 확인) |
+| `One_isolated_assault_#4-1791852873626.mp3` | rifle_shot (소총) | 1.00초 | 0–0.60초 | 0.15초 지점의 두 번째 충격음은 한 발의 일부(저장소 주인이 들어 보고 확인) |
 | `One_isolated_pistol__#1-1791852982564.mp3` | pistol_shot (권총) | 2.00초 | 0–1.00초 | |
 | `One_isolated_powerfu_#1-1791853007928.mp3` | sniper_shot (저격총, 저장소 주인이 들어 보고 확인) | 1.00초 | 0–0.80초 | |
 | `One_isolated_powerfu_#2-1791853350227.mp3` | revolver_shot (리볼버, 저장소 주인이 들어 보고 확인) | 2.00초 | 0–1.10초 | |

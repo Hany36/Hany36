@@ -29,7 +29,7 @@
     },
     // use: the clips the sound plays (several: they take turns); candidates: files not yet told apart, picked on the test page
     sounds: {
-      rifle_shot:        { cat: 'gunshots', use: ['rifle'], gain: 1, check: '0.15초 지점에 첫 소리와 거의 같은 크기의 충격음이 한 번 더 있어요. 두 발이 들어 있는지 들어 보고 확인해 주세요.' },
+      rifle_shot:        { cat: 'gunshots', use: ['rifle'], gain: 1 },   // the second hit at 0.15 s is part of the one shot (the owner listened)
       smg_shot:          { cat: 'gunshots', use: ['smg'], gain: 1 },
       shotgun_shot:      { cat: 'gunshots', use: ['shotgun'], gain: 1.1 },   // 110%, 80%: the owner's ears (2026-10-13)
       pistol_shot:       { cat: 'gunshots', use: ['pistol'], gain: .8 },
