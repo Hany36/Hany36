@@ -109,6 +109,17 @@
 
 - 처음에 구분하지 못한 저격총/리볼버와 발소리 3개는 저장소 주인이 효과음 테스트 화면에서 듣고 알려 준 대로 연결했어요(2026-10-13, 볼륨 확정 뒤 테스트 화면은 지움).
 
+## 3-1. 맵 표면 사진 무늬: `assets/textures/ambientcg/` (게임에 적용함, 2026-10-14)
+
+- 출처: ambientCG (https://ambientcg.com)
+- 이용 조건: 라이선스 안내 페이지(https://docs.ambientcg.com/license/)에서 확인한 문구 — "All ambientCG assets are provided under the Creative Commons CC0 1.0 Universal License", "You can include the raw files in your project, for example a video game", 출처 표시는 필수 아님. 확인일 2026-10-14.
+- 받은 방법: 각 에셋 페이지의 1K-JPG 묶음(zip)을 받아, 안의 파일이 1024 × 1024 JPEG 이미지인지 검사한 뒤 사용.
+
+| 게임 파일 | 원본 에셋 | 실제 크기 (사이트 표기) | 쓰는 곳 | 수정 내용 |
+|---|---|---|---|---|
+| `Bricks059_Color_AO.jpg`, `Bricks059_NormalGL.jpg`, `Bricks059_Roughness.jpg` | Bricks 059 (https://ambientcg.com/a/Bricks059), `Bricks059_1K-JPG.zip` | 105 × 105 cm | 벽돌 벽(보급창고 중앙 건물 외벽, 경비실) | 색 이미지에 AmbientOcclusion 이미지를 곱해 합침, 게임에서 색을 조금 회색 쪽으로(0xe2d8d0) 곱함, JPEG 다시 압축 |
+| `CorrugatedSteel006A_NormalGL.jpg` | Corrugated Steel 006 A (https://ambientcg.com/a/CorrugatedSteel006A), `CorrugatedSteel006A_1K-JPG.zip` | 사이트에 표기 없음 → 실제 크기 미확인 (게임에서는 한 장을 2.6 m에 맞춰 반복) | 컨테이너의 철판 주름 요철만 (색과 녹은 게임이 코드로 그린 기존 무늬 그대로) | 노멀맵만 사용, 세기 0.6, 거칠기 0.9(무광, 저장소 주인 결정), JPEG 다시 압축 |
+
 ## 4. 함께 넣은 코드
 
 | 파일 | 출처 | 라이선스 |

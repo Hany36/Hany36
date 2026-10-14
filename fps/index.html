@@ -1028,6 +1028,34 @@ function buildTextures() {
   TEX.camoBlue = camo([[52, 60, 74], [86, 98, 116], [120, 130, 142], [70, 80, 96]], 200);
   TEX.camoRed = camo([[120, 98, 70], [168, 146, 108], [92, 74, 54], [146, 122, 88]], 300);
 }
+// ---- photo surfaces from files (ambientCG, CC0 1.0 -- see ASSET_CREDITS.md). The drawn textures stay until these load (and if
+// they can't). tile: the meters one image covers.
+//   brick walls: the photo's colour (shadowing baked in), relief (normal map) and roughness, a little greyed
+//   containers: keep their drawn colour and rust; only the corrugated sheet's relief comes from the photo, and the paint is matte
+const PHOTO_DIR = 'assets/textures/ambientcg/';
+const PHOTO = [
+  { color: 'Bricks059_Color_AO.jpg', normal: 'Bricks059_NormalGL.jpg', rough: 'Bricks059_Roughness.jpg', tile: 1.05, metal: 0, tint: 0xe2d8d0, mats: ['brick'] },
+  { normal: 'CorrugatedSteel006A_NormalGL.jpg', tile: 2.6, metal: .05, roughness: .9, relief: .6, mats: ['contR', 'contB', 'contG', 'contY'] },
+];
+function loadPhotoSurfaces(mats) {
+  const L = new THREE.TextureLoader();
+  const load = (f, srgb) => !f ? Promise.resolve(null) : new Promise((res, rej) => L.load(PHOTO_DIR + f, t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.encoding = THREE.sRGBEncoding; res(t); }, undefined, rej));
+  for (const ph of PHOTO) {
+    Promise.all([load(ph.color, true), load(ph.normal), load(ph.rough)]).then(maps => {
+      for (const k of ph.mats) {
+        const m = mats[k]; if (!m) continue;
+        // the boxes' texture coordinates were made for the drawn texture's tile size; repeat rescales them to this one
+        const rep = (TEX[k] ? TEX[k].tileSize : 2) / ph.tile;
+        const [map, normalMap, roughnessMap] = maps.map(t => { if (!t) return null; const c = t.clone(); c.needsUpdate = true; c.repeat.set(rep, rep); return c; });
+        Object.assign(m, { normalMap, bumpMap: null, metalness: ph.metal });
+        if (map) { m.map = map; m.color.setHex(ph.tint).convertSRGBToLinear(); }
+        if (roughnessMap) { m.roughnessMap = roughnessMap; m.roughness = 1; } else m.roughness = ph.roughness;
+        if (ph.relief) m.normalScale.set(ph.relief, ph.relief);
+        m.needsUpdate = true;
+      }
+    }).catch(() => { /* keep the drawn textures */ });
+  }
+}
 // Box geometry with UVs scaled to the box size so textures keep the same density everywhere
 function boxGeometry(sx, sy, sz, tile) {
   const geo = new THREE.BoxGeometry(sx, sy, sz);
@@ -1129,6 +1157,7 @@ function initThree() {
   mats.paintB = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0x6f8fc8, roughness: .85 });
   mats.paintR = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0xc87a70, roughness: .85 });
   mats.contY = std({ map: TEX.contG, bumpMap: TEX.contG, bumpScale: .025, color: 0xe8c070, roughness: .55, metalness: .3 });
+  loadPhotoSurfaces(mats);
   const byMat = {};
   for (const b of BOXES) {
     if (!b.vis) continue;
@@ -3636,7 +3665,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-14 #48)';
+const GAME_VERSION = '1.0 (10-14 #49)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
