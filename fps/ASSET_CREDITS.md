@@ -117,8 +117,12 @@
 
 | 게임 파일 | 원본 에셋 | 실제 크기 (사이트 표기) | 쓰는 곳 | 수정 내용 |
 |---|---|---|---|---|
-| `Bricks059_Color_AO.jpg`, `Bricks059_NormalGL.jpg`, `Bricks059_Roughness.jpg` | Bricks 059 (https://ambientcg.com/a/Bricks059), `Bricks059_1K-JPG.zip` | 105 × 105 cm | 벽돌 벽(보급창고 중앙 건물 외벽, 경비실) | 색 이미지에 AmbientOcclusion 이미지를 곱해 합침, 게임에서 색을 조금 회색 쪽으로(0xe2d8d0) 곱함, JPEG 다시 압축 |
-| `CorrugatedSteel006A_NormalGL.jpg` | Corrugated Steel 006 A (https://ambientcg.com/a/CorrugatedSteel006A), `CorrugatedSteel006A_1K-JPG.zip` | 사이트에 표기 없음 → 실제 크기 미확인 (게임에서는 한 장을 2.6 m에 맞춰 반복) | 컨테이너의 철판 주름 요철만 (색과 녹은 게임이 코드로 그린 기존 무늬 그대로) | 노멀맵만 사용, 세기 0.6, 거칠기 0.9(무광, 저장소 주인 결정), JPEG 다시 압축 |
+| `Bricks059_Color_AO.jpg`, `Bricks059_NormalGL.jpg`, `Bricks059_Roughness.jpg` | Bricks 059 (https://ambientcg.com/a/Bricks059), `Bricks059_1K-JPG.zip` | 105 × 105 cm | 벽돌 벽(보급창고 중앙 건물 외벽, 경비실) | 색 이미지에 AmbientOcclusion 이미지를 곱해 합침, 게임에서 색을 조금 회색 쪽으로(0xe2d8d0) 곱함, 넓은 밝기 얼룩을 약하게 섞음, JPEG 다시 압축 |
+| `Concrete046_Color_Grey.jpg`, `Concrete046_NormalGL.jpg`, `Concrete046_Roughness_Matte.jpg` | Concrete 046 (https://ambientcg.com/a/Concrete046), `Concrete046_1K-JPG.zip` | 240 × 240 cm | 콘크리트 벽 · 건물 · 기둥 · 계단 · 내벽, 스폰의 칠한 벽(색을 곱함) | 채도를 낮춤(-modulate 100,45), 거칠기 그림을 무광 쪽으로(+level 75%,100%), 게임에서 예전 밝기에 맞춰 색을 곱함, 반복이 덜 보이게 넓은 밝기 얼룩을 섞음, JPEG 다시 압축 |
+| `Concrete034_Color.jpg`, `Concrete034_NormalGL.jpg`, `Concrete034_Roughness_Matte.jpg` | Concrete 034 (https://ambientcg.com/a/Concrete034), `Concrete034_1K-JPG.zip` | 110 × 55 cm | 실내 바닥, 2층 바닥, 지하 천장 | 거칠기 무광 쪽으로, 게임에서 회색으로 어둡게 곱함(조명 아래 하얗게 뜨지 않게), 같은 그림을 돌려 겹치고 밝기 얼룩을 섞어 반복 줄임, JPEG 다시 압축 |
+| `Asphalt020S_Color_AO.jpg`, `Asphalt020S_NormalGL.jpg`, `Asphalt020S_Roughness_Matte.jpg` | Asphalt 020 S (https://ambientcg.com/a/Asphalt020S), `Asphalt020S_1K-JPG.zip` | 185 × 185 cm | 보급창고 바깥 땅 | 색×AO 합침, 거칠기 무광 쪽으로, 게임에서 조금 어둡게, 같은 그림을 돌려 겹치고 밝기 얼룩을 섞어 반복 줄임, JPEG 다시 압축 |
+| `Planks021_Crate_Color.jpg`, `Planks021_Crate_NormalGL.jpg`, `Planks021_Roughness_Matte.jpg` | Planks 021 (https://ambientcg.com/a/Planks021), `Planks021_1K-JPG.zip` | 140 × 140 cm | 나무 상자(상자 면마다 그림 한 장) | 색×AO 합침, 같은 사진을 잘라 어둡게 한 테두리 각목(세로는 90도 회전)과 틈 선을 그려 넣음, 테두리 부분의 노멀은 평평하게, 거칠기 무광 쪽으로, 게임에서 갈색 쪽으로 색을 곱함, JPEG 다시 압축 |
+| `CorrugatedSteel006A_NormalGL.jpg` | Corrugated Steel 006 A (https://ambientcg.com/a/CorrugatedSteel006A), `CorrugatedSteel006A_1K-JPG.zip` | 사이트에 표기 없음 → 실제 크기 미확인 (게임에서는 한 장을 2.6 m에 맞춰 반복) | 컨테이너와 창고 철판 벽의 주름 요철만 (색과 녹은 게임이 코드로 그린 기존 무늬 그대로) | 노멀맵만 사용, 세기 0.6, 거칠기 0.9(무광, 저장소 주인 결정), JPEG 다시 압축 |
 
 ## 4. 함께 넣은 코드
 

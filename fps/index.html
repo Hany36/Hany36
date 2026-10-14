@@ -1029,28 +1029,58 @@ function buildTextures() {
   TEX.camoRed = camo([[120, 98, 70], [168, 146, 108], [92, 74, 54], [146, 122, 88]], 300);
 }
 // ---- photo surfaces from files (ambientCG, CC0 1.0 -- see ASSET_CREDITS.md). The drawn textures stay until these load (and if
-// they can't). tile: the meters one image covers.
-//   brick walls: the photo's colour (shadowing baked in), relief (normal map) and roughness, a little greyed
-//   containers: keep their drawn colour and rust; only the corrugated sheet's relief comes from the photo, and the paint is matte
+// they can't). tile: the meters one image covers [wide, high]; 0 = one image per box face (crates). Roughness maps are made
+// matte (the photo sets' own values looked shiny); mats: material -> colour multiplied in (null: white).
+//   brick walls, concrete walls, floors, the asphalt ground, crates: colour (shadowing baked in), relief (normal map), roughness
+//   containers and the warehouse's sheet walls: keep their drawn colour and rust; only the corrugated relief comes from the photo
 const PHOTO_DIR = 'assets/textures/ambientcg/';
 const PHOTO = [
-  { color: 'Bricks059_Color_AO.jpg', normal: 'Bricks059_NormalGL.jpg', rough: 'Bricks059_Roughness.jpg', tile: 1.05, metal: 0, tint: 0xe2d8d0, mats: ['brick'] },
-  { normal: 'CorrugatedSteel006A_NormalGL.jpg', tile: 2.6, metal: .05, roughness: .9, relief: .6, mats: ['contR', 'contB', 'contG', 'contY'] },
+  { color: 'Bricks059_Color_AO.jpg', normal: 'Bricks059_NormalGL.jpg', rough: 'Bricks059_Roughness.jpg', tile: [1.05, 1.05], vary: 'tone', varyAmp: .25, mats: { brick: 0xe2d8d0 } },
+  { color: 'Concrete046_Color_Grey.jpg', normal: 'Concrete046_NormalGL.jpg', rough: 'Concrete046_Roughness_Matte.jpg', tile: [2.4, 2.4], vary: 'tone', varyAmp: .4,
+    mats: { concrete: 0x9d9b96, paintB: 0x4a5e8a, paintR: 0x8a524a } },   // as dark as the drawn ones
+  { color: 'Concrete034_Color.jpg', normal: 'Concrete034_NormalGL.jpg', rough: 'Concrete034_Roughness_Matte.jpg', tile: [1.1, .55], vary: 'mix', varyAmp: .35, mats: { slab: 0x8c8a85, floor: 0x85837f } },   // grey, not glaring under the lamps
+  { color: 'Asphalt020S_Color_AO.jpg', normal: 'Asphalt020S_NormalGL.jpg', rough: 'Asphalt020S_Roughness_Matte.jpg', tile: [1.85, 1.85], vary: 'mix', varyAmp: .5, mats: { ground: 0x9c9c9c } },
+  { color: 'Planks021_Crate_Color.jpg', normal: 'Planks021_Crate_NormalGL.jpg', rough: 'Planks021_Roughness_Matte.jpg', tile: 0, mats: { crate: 0xb89c80 } },
+  { normal: 'CorrugatedSteel006A_NormalGL.jpg', tile: [2.6, 2.6], metal: .05, roughness: .9, relief: .6, mats: { contR: null, contB: null, contG: null, contY: null, whwall: null } },
 ];
+// Breaking up the repeat (vary): 'tone' lays wide lighter and darker patches over the photo (for walls whose seams and bricks
+// must stay straight); 'mix' also blends in the same photo turned and rescaled in patches (for asphalt and floors, which
+// have no direction). The patches come from smooth noise over the texture coordinates, a few images across.
+const VARY_GLSL = `
+float vyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vyNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(vyHash(i), vyHash(i + vec2(1., 0.)), f.x), mix(vyHash(i + vec2(0., 1.)), vyHash(i + vec2(1., 1.)), f.x), f.y); }`;
+function varySurface(m, how, amp) {
+  m.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + VARY_GLSL).replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  vec4 texelColor = texture2D(map, vUv);
+  ${how === 'mix' ? `float vyM = smoothstep(.35, .65, vyNoise(vUv * .27) * .65 + vyNoise(vUv * .71 + 3.1) * .35);
+  texelColor = mix(texelColor, texture2D(map, vec2(vUv.y, -vUv.x) * .73 + vec2(.37, .19)), vyM);` : ''}
+  texelColor = mapTexelToLinear(texelColor);
+  texelColor.rgb *= ${(1 - amp / 2).toFixed(3)} + ${amp.toFixed(3)} * (vyNoise(vUv * .13 + 7.3) * .7 + vyNoise(vUv * .41 + 1.7) * .3);
+  diffuseColor *= texelColor;
+#endif`);
+  };
+  m.customProgramCacheKey = () => `vary-${how}-${amp}`;
+}
+// box faces of these materials show one whole image each (UVs 0..1), instead of the image repeating by size
+const PER_FACE = new Set(['crate']);
 function loadPhotoSurfaces(mats) {
   const L = new THREE.TextureLoader();
   const load = (f, srgb) => !f ? Promise.resolve(null) : new Promise((res, rej) => L.load(PHOTO_DIR + f, t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.encoding = THREE.sRGBEncoding; res(t); }, undefined, rej));
   for (const ph of PHOTO) {
     Promise.all([load(ph.color, true), load(ph.normal), load(ph.rough)]).then(maps => {
-      for (const k of ph.mats) {
+      for (const k in ph.mats) {
         const m = mats[k]; if (!m) continue;
-        // the boxes' texture coordinates were made for the drawn texture's tile size; repeat rescales them to this one
-        const rep = (TEX[k] ? TEX[k].tileSize : 2) / ph.tile;
-        const [map, normalMap, roughnessMap] = maps.map(t => { if (!t) return null; const c = t.clone(); c.needsUpdate = true; c.repeat.set(rep, rep); return c; });
-        Object.assign(m, { normalMap, bumpMap: null, metalness: ph.metal });
-        if (map) { m.map = map; m.color.setHex(ph.tint).convertSRGBToLinear(); }
+        // the texture coordinates were made for the drawn texture's tile size; repeat rescales them to this image's size
+        const was = TEX[k] ? TEX[k].tileSize : 2, rx = ph.tile ? was / ph.tile[0] : 1, ry = ph.tile ? was / ph.tile[1] : 1;
+        const [map, normalMap, roughnessMap] = maps.map(t => { if (!t) return null; const c = t.clone(); c.needsUpdate = true; c.repeat.set(rx, ry); return c; });
+        Object.assign(m, { normalMap, bumpMap: null, metalness: ph.metal || 0 });
+        if (map) { m.map = map; m.color.setHex(ph.mats[k] === null ? 0xffffff : ph.mats[k]).convertSRGBToLinear(); }
         if (roughnessMap) { m.roughnessMap = roughnessMap; m.roughness = 1; } else m.roughness = ph.roughness;
         if (ph.relief) m.normalScale.set(ph.relief, ph.relief);
+        if (ph.vary) varySurface(m, ph.vary, ph.varyAmp || .3);
         m.needsUpdate = true;
       }
     }).catch(() => { /* keep the drawn textures */ });
@@ -1059,6 +1089,7 @@ function loadPhotoSurfaces(mats) {
 // Box geometry with UVs scaled to the box size so textures keep the same density everywhere
 function boxGeometry(sx, sy, sz, tile) {
   const geo = new THREE.BoxGeometry(sx, sy, sz);
+  if (!tile) return geo;                       // one image per face
   const uv = geo.attributes.uv;
   const dims = [[sz, sy], [sz, sy], [sx, sz], [sx, sz], [sx, sy], [sx, sy]];
   for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) {
@@ -1157,7 +1188,6 @@ function initThree() {
   mats.paintB = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0x6f8fc8, roughness: .85 });
   mats.paintR = std({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: .02, color: 0xc87a70, roughness: .85 });
   mats.contY = std({ map: TEX.contG, bumpMap: TEX.contG, bumpScale: .025, color: 0xe8c070, roughness: .55, metalness: .3 });
-  loadPhotoSurfaces(mats);
   const byMat = {};
   for (const b of BOXES) {
     if (!b.vis) continue;
@@ -1175,7 +1205,7 @@ function initThree() {
       continue;
     }
     const sx = b.x1 - b.x0, sy = b.y1 - b.y0, sz = b.z1 - b.z0;
-    const g = boxGeometry(sx, sy, sz, TEX[b.mat] ? TEX[b.mat].tileSize : 2);
+    const g = boxGeometry(sx, sy, sz, PER_FACE.has(b.mat) ? 0 : TEX[b.mat] ? TEX[b.mat].tileSize : 2);
     g.translate((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
     (byMat[b.mat] = byMat[b.mat] || []).push(g);
   }
@@ -1205,6 +1235,8 @@ function initThree() {
   for (const r of rectSubtract([-MX, -MZ, MX, MZ], PIT_OPEN)) plane(r[0], r[1], r[2], r[3], gTex, gMat);
   const floorMat = std({ map: TEX.floor, roughness: .45, metalness: .05, polygonOffset: true, polygonOffsetFactor: -1 });
   for (const [x0, z0, x1, z1, y = 0] of INDOOR) plane(x0, z0, x1, z1, TEX.floor, floorMat, y + .005);
+  mats.floor = floorMat; if (MAP_META.ground === 'ground') mats.ground = gMat;   // the depot's floors and asphalt get photo surfaces too
+  loadPhotoSurfaces(mats);
   const sandMat = std({ map: TEX.sand, bumpMap: TEX.sand, bumpScale: .03, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 });
   for (const [x0, z0, x1, z1] of SAND_FLOORS) plane(x0, z0, x1, z1, TEX.sand, sandMat, .008);
   const lineMat = std({ color: 0xd9b030, roughness: .7, polygonOffset: true, polygonOffsetFactor: -2 });
@@ -3665,7 +3697,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-14 #49)';
+const GAME_VERSION = '1.0 (10-14 #50)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
