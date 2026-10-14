@@ -864,8 +864,13 @@ const WEAPONS = {
   shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 23, pellets: 9, falloff: true, head: 1.6, spread: .033, aimSpread: .024, kick: .045, reload: 2.6, range: 40, fov: 56, snd: 1.4, adsY: -.07, adsZ: -.34 },
   revolver: { n: '리볼버', mag: 6, res: 30, rate: .42, auto: false, dmg: 52, head: 2.6, spread: .012, aimSpread: .003, kick: .055, reload: 2.2, range: 90, fov: 60, snd: 1.15, adsY: -.072, adsZ: -.3 },
   knife:  { n: '칼', melee: true, rate: .5, dmg: 100, range: 2.5 },
+  // the grenade in hand (key 4 / G): no aiming or reloading like the knife; holding the trigger pulls the pin and draws the arm
+  // back (the arc shows), letting go throws
+  nade:   { n: '수류탄', melee: true, nade: true, mob: 1.05, rate: .1 },
 };
-const NADE = { n: '수류탄', dmg: 130, radius: 6.5, fuse: 2.2 };
+// draw: taking a grenade out (also the next one after a throw); pin: pulling the pin and drawing the arm back before a throw
+// can go; throwT: the throwing swing, the grenade leaving the hand `release` seconds into it
+const NADE = { n: '수류탄', dmg: 130, radius: 9, fuse: 2.2, draw: .55, pin: .35, throwT: .42, release: .16 };
 const WKEYS = Object.keys(WEAPONS);
 const airOf = a => (a.isMe ? !me.ground : !!a.air);   // off the ground (a jump or a fall)                     // weapon <-> small number, for recordings and the network
 const heldWeapon = a => (a.isMe ? weapon : a.weapon || 'rifle');
@@ -908,7 +913,7 @@ let GOAL = +settings.goal, MATCH_TIME = settings.minutes * 60;
 function saveSettings() { try { localStorage.setItem('supply-op.settings', JSON.stringify(settings)); } catch (e) { /* storage unavailable */ } }
 const G = { state: 'menu', time: 0, score: { blue: 0, red: 0 }, actors: [], nades: [], countdown: 0 };
 let loadoutPrimary = 'rifle', loadoutSecondary = 'pistol', loadoutEquip = 'nades';   // fixed at spawn; changes apply at the next respawn
-const slots = () => [loadoutPrimary, loadoutSecondary, 'knife'];
+const slots = () => [loadoutPrimary, loadoutSecondary, 'knife', ...(nades > 0 ? ['nade'] : [])];
 
 // =============== procedural textures ===============
 function hash3(x, y, s) {
@@ -1602,6 +1607,7 @@ function rigSoldier(team) {
     held[k] = { m, l: sp.l && [sp.l[0] + o[0], sp.l[1] + o[1], sp.l[2] + o[2]], muzzle: sp.muzzle && [0, sp.muzzle[0] + o[1], sp.muzzle[1] + o[2]] };
   }
   else { const m = rifleModel(1); gun.add(m); held.rifle = { m, l: R.gripL, muzzle: [0, .01, -.71] }; }
+  { const m = nadeModel(1 / R.scale); m.position.set(...R.gripR); m.visible = false; gun.add(m); held.nade = { m, l: null }; }   // a grenade in the right palm
   const bb = CHARACTER.band, arm = bones[bb.bone];
   if (arm) {   // armband in team color, sized in meters whatever the bone's scale
     const band = new THREE.Mesh(new THREE.CylinderGeometry(bb.radius, bb.radius, bb.length, 12, 1, true), MAT.band[team]);
@@ -1745,20 +1751,35 @@ function animateRig(a, dt, sp) {
   const PG = CHARACTER.prone.gun;
   g.position.set(R.pos[0] + a.aimK * R.aimShift[0] + a.leanK * LEAN_DIST * .6 + PG[0] * pk, R.pos[1] + chestDy + a.aimK * R.aimRaise * up1 - a.sprintK * R.sprintDrop + PG[1] * pk, R.pos[2] - chestDf + a.aimK * R.aimShift[1] + PG[2] * pk);
   g.rotation.set(a.pitch * (1 - a.sprintK) - a.sprintK * .6, a.sprintK * .5, -a.leanK * .3);
+  // a grenade throw (a.throwS, see nadePose): held in front of the belly, drawn back up behind the right shoulder, thrown
+  // forward over the shoulder to the release, then the arm follows through down across the body
+  const nade = wk === 'nade', ts = nade ? a.throwS || 0 : 0;
+  let wb = 0, fo = 0;
+  if (nade) {
+    wb = ease(Math.min(1, ts)); const pp = Math.max(0, Math.min(1, ts - 1)), f1 = ease(Math.min(1, pp / .4)); fo = ease(Math.max(0, (pp - .4) / .6));
+    const N = NADE_3P, lerp3 = (A3, B3, t) => A3.map((v, i) => v + (B3[i] - v) * t);
+    const q = lerp3(lerp3(lerp3(N[0], N[1], wb), N[2], f1), N[3], fo);
+    g.position.set(q[0] + a.leanK * LEAN_DIST * .6, q[1] + chestDy, q[2] - chestDf); g.rotation.set(0, 0, 0);
+    H.m.visible = !a.dead && ts < 1 + NADE.release / NADE.throwT;
+  }
   g.updateMatrixWorld(true);
   if (B.RightArm && B.RightForeArm && B.RightHand) {
     const t = g.localToWorld(RIGV.t.set(R.gripR[0], R.gripR[1], R.gripR[2] + R.wrist / R.scale));
-    const pole = B.RightArm.getWorldPosition(new THREE.Vector3()).addScaledVector(right, .5).add(new THREE.Vector3(0, -.6, 0)).addScaledVector(fwd, -.2);
+    const pole = B.RightArm.getWorldPosition(new THREE.Vector3()).addScaledVector(right, .5).add(new THREE.Vector3(0, -.6 + .9 * wb * (1 - fo), 0)).addScaledVector(fwd, -.2);
     ik2(B.RightArm, B.RightForeArm, B.RightHand, t.clone(), pole);
   }
   if (B.LeftArm && B.LeftForeArm && B.LeftHand) {
     const sh = B.LeftArm.getWorldPosition(new THREE.Vector3());
-    // one-handed (knife): the left hand hangs at the side
-    const t = H.l ? g.localToWorld(RIGV.t.set(H.l[0], H.l[1], H.l[2] + R.wrist / R.scale)) : RIGV.t.copy(sh).add(new THREE.Vector3(0, -.5, 0)).addScaledVector(fwd, .1).addScaledVector(right, -.06);
+    // one-handed (knife): the left hand hangs at the side. With a grenade it pulls the pin, then points ahead for the throw
+    let t = H.l ? g.localToWorld(RIGV.t.set(H.l[0], H.l[1], H.l[2] + R.wrist / R.scale)) : RIGV.t.copy(sh).add(new THREE.Vector3(0, -.5, 0)).addScaledVector(fwd, .1).addScaledVector(right, -.06);
+    if (nade && ts > 0 && ts < .5) t = H.m.getWorldPosition(RIGV.t).add(new THREE.Vector3(0, .08, 0)).addScaledVector(right, -.05);
+    else if (nade && ts >= .5 && ts < 1.5) t = RIGV.t.copy(sh).addScaledVector(fwd, .5).add(new THREE.Vector3(0, .02, 0)).addScaledVector(right, .05);
     const pole = sh.clone().addScaledVector(right, -.5).add(new THREE.Vector3(0, -.7, 0)).addScaledVector(fwd, H.l ? 0 : -.6);
     ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, t.clone(), pole);
   }
 }
+// where the grenade hand goes in a throw (actor space: x right, y up, -z forward): holding, drawn back, release, follow-through
+const NADE_3P = [[.12, 1.12, -.3], [.24, 1.62, .14], [.1, 1.64, -.55], [-.06, 1.02, -.36]];
 function allyMarker() {
   const c = document.createElement('canvas'); c.width = c.height = 32;
   const x = c.getContext('2d'); x.fillStyle = '#5b95f0'; x.beginPath(); x.moveTo(16, 28); x.lineTo(4, 8); x.lineTo(28, 8); x.closePath(); x.fill();
@@ -1766,6 +1787,16 @@ function allyMarker() {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
   s.scale.set(.22, .22, 1); s.position.y = 2.15; s.renderOrder = 5;
   return s;
+}
+// a hand grenade, k: size factor (1 = meters). userData.ring: the pin ring (pulled before a throw)
+function nadeModel(k = 1) {
+  const g = new THREE.Group(), body = new THREE.Mesh(new THREE.SphereGeometry(.032 * k, 14, 10), std({ color: 0x4a5634, roughness: .6 }));
+  body.scale.y = 1.12; g.add(body);
+  const fuse = new THREE.Mesh(new THREE.CylinderGeometry(.011 * k, .012 * k, .024 * k, 10), MAT.gun); fuse.position.y = .042 * k; g.add(fuse);
+  const lever = meshAt(new THREE.BoxGeometry(.012 * k, .058 * k, .005 * k), MAT.gun, .03 * k, .022 * k, 0); lever.rotation.z = -.35; g.add(lever);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(.011 * k, .0018 * k, 6, 16), MAT.blade); ring.position.set(-.022 * k, .046 * k, 0); ring.rotation.y = Math.PI / 2; g.add(ring);
+  g.userData.ring = ring; g.userData.ringAt = ring.position.clone();
+  return g;
 }
 function buildViewModels() {
   const root = new THREE.Group();
@@ -1833,6 +1864,10 @@ function buildViewModels() {
   rv.add(meshAt(new THREE.BoxGeometry(.03, .04, .08), MAT.gun2, 0, .02, .04), meshAt(new THREE.BoxGeometry(.004, .014, .01), MAT.gun, 0, .047, -.2), meshAt(new THREE.BoxGeometry(.018, .01, .01), MAT.gun, 0, .045, .07));
   const rvG = meshAt(new THREE.BoxGeometry(.03, .1, .045), MAT.wood, 0, -.05, .07); rvG.rotation.x = -.35; rv.add(rvG);
   models.revolver = arms(rv, [0, -.07, .07], [-.02, -.08, .05]);
+  // grenade: held in the right fist; the left hand comes in to pull the pin (see nadeHand)
+  const nd = nadeModel(1), ndg = new THREE.Group(); ndg.add(nd); ndg.userData.nade = nd;
+  models.nade = arms(ndg, [0, -.012, .012]);
+  models.nade.userData.grip.fist = true;
   for (const k in models) { models[k].visible = false; root.add(models[k]); }
   const flashC = document.createElement('canvas'); flashC.width = flashC.height = 64;
   const fg = flashC.getContext('2d'), grd = fg.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -1934,6 +1969,28 @@ function slashPose(s) {
   const r = s > .7 ? (s - .7) / .3 : 0, back = 1 - r * r * (3 - 2 * r);   // 1 during the swing, down to 0 on the way back
   return { x: (-.36 + .5 * e) * back, y: .04 * arc, z: -.12 * arc, rx: -.4 * arc, ry: (1.25 - 2.1 * e) * back, rz: .6 * arc };
 }
+// a grenade throw in first person. s: 0 holding; 0..1 pin pulled and the arm drawn back (up and over the shoulder);
+// 1..2 the throw: forward to the release, then the arm follows through down and out of view
+const ZERO_POSE = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }, ease = v => v * v * (3 - 2 * v);
+function nadePose(s) {
+  if (!(s > 0)) return ZERO_POSE;
+  if (s <= 1) { const k = ease(s); return { x: .06 * k, y: .1 * k, z: .14 * k, rx: .55 * k, ry: -.15 * k, rz: -.25 * k }; }
+  const p = Math.min(1, s - 1), a = ease(Math.min(1, p / .4)), b = ease(Math.max(0, (p - .4) / .6));
+  return { x: .06 - .16 * a - .1 * b, y: .1 + .02 * a - .5 * b, z: .14 - .4 * a + .05 * b, rx: .55 - 1.2 * a - .4 * b, ry: -.15 + .25 * a, rz: -.25 + .35 * a + .3 * b };
+}
+// the grenade in the first-person hand for throw state s: the left hand comes in from the left and pulls the ring away
+// during the first part of the draw-back (the grenade turns toward it, so the left fist closes on the ring), the ring is
+// gone once pulled, the grenade once it leaves the hand
+function nadeHand(s) {
+  const g = vm.models.nade; if (!g) return;
+  const nd = g.userData.nade, grip = g.userData.grip, ring = nd.userData.ring, at = nd.userData.ringAt;
+  nd.visible = !(s >= 1 + NADE.release / NADE.throwT);
+  if (s > 0 && s < .6) {
+    const u = s / .6, turn = Math.min(1, u * 3) * (1 - ease(Math.max(0, (u - .7) / .3)));
+    ring.visible = true; ring.position.set(at.x - .1 * u, at.y + .03 * u, at.z + .02 * u);
+    grip.lh = [ring.position.x, ring.position.y - .012, ring.position.z + .01]; g.rotation.set(0, -1.2 * turn, 0);
+  } else { ring.visible = !(s > 0); ring.position.copy(at); grip.lh = null; g.rotation.set(0, 0, 0); }
+}
 let DOT_TEX = null;
 function dotTexture() {   // a soft red point of light
   if (DOT_TEX) return DOT_TEX;
@@ -2018,9 +2075,9 @@ function worldFlash(p, scale = .5) {
 }
 function explosionFx(p) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: vm.flashTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  s.position.set(p[0], p[1] + .5, p[2]); s.scale.set(5, 5, 1); fxGroup.add(s); flashes.push({ s, t: 0, life: .3, grow: 3 });
-  burst([p[0], p[1] + .3, p[2]], [1, .7, .25], 60, 12, .6);
-  burst([p[0], p[1] + .3, p[2]], [.25, .24, .22], 50, 4, 1.4);
+  s.position.set(p[0], p[1] + .5, p[2]); s.scale.set(6.5, 6.5, 1); fxGroup.add(s); flashes.push({ s, t: 0, life: .32, grow: 3, base: 6.5 });
+  burst([p[0], p[1] + .3, p[2]], [1, .7, .25], 80, 15, .6);
+  burst([p[0], p[1] + .3, p[2]], [.25, .24, .22], 70, 5, 1.6);
 }
 function updateFx(dt) {
   for (let i = tracers.length - 1; i >= 0; i--) {
@@ -2029,7 +2086,7 @@ function updateFx(dt) {
   }
   for (let i = flashes.length - 1; i >= 0; i--) {
     const f = flashes[i]; f.t += dt;
-    if (f.grow) { const k = 1 + f.t * f.grow * 4; f.s.scale.set(5 * k / 2, 5 * k / 2, 1); f.s.material.opacity = 1 - f.t / f.life; }
+    if (f.grow) { const k = 1 + f.t * f.grow * 4, b = f.base || 5; f.s.scale.set(b * k / 2, b * k / 2, 1); f.s.material.opacity = 1 - f.t / f.life; }
     if (f.t > f.life) { fxGroup.remove(f.s); f.s.material.dispose(); flashes.splice(i, 1); }
   }
   let n = 0;
@@ -2367,7 +2424,7 @@ function damage(victim, amount, attacker, weapon, head, from) {
 // =============== player ===============
 let me = null, aiming = false, weapon = 'rifle', prevWeapon = 'pistol';
 const ammo = {};
-let fireCd = 0, reloadT = 0, switchT = 0, spreadBoost = 0, recoilP = 0, nades = 2, bob = 0, triggerHeld = false, firedThisPress = false;
+let fireCd = 0, reloadT = 0, switchT = 0, switchDur = .35, spreadBoost = 0, recoilP = 0, nades = 2, bob = 0, triggerHeld = false, firedThisPress = false;
 function setAim(v) {
   const w = WEAPONS[weapon];
   aiming = !!v && !w.melee && reloadT <= 0 && !(me && me.dead);
@@ -2382,9 +2439,11 @@ function resetLoadout() {
   nades = loadoutEquip === 'armor' ? 0 : 2; reloadT = 0; fireCd = 0; prevWeapon = loadoutSecondary; crouchToggle = false; proneT = 0; spaceBlock = false; selectWeapon(loadoutPrimary, true);
 }
 function selectWeapon(k, instant) {
+  if (k === 'nade' && nades <= 0) return;
   if (k === weapon && !instant) return;
   if (k !== weapon) prevWeapon = weapon;
-  weapon = k; reloadT = 0; switchT = instant ? 0 : .35; setAim(false);
+  weapon = k; reloadT = 0; switchDur = k === 'nade' ? NADE.draw : .35; switchT = instant ? 0 : switchDur; setAim(false);
+  nadePh = 0; nadeT = 0; cancelNadeAim();   // switching away before the release keeps the grenade
   for (const m in vm.models) vm.models[m].visible = m === k;
 }
 const PR = .3;
@@ -2516,6 +2575,8 @@ function updatePlayer(dt) {
   recoilP = Math.max(0, recoilP - dt * .25);
   const w = WEAPONS[weapon];
   if (reloadT > 0) { reloadT -= dt; if (reloadT <= 0) finishReload(); }
+  if (w.nade) { nadeTick(dt); me.throwS = throwState(); return; }
+  me.throwS = 0;
   if (triggerHeld && switchT <= 0 && reloadT <= 0 && fireCd <= 0 && proneT <= 0 && (w.auto || !firedThisPress)) { firedThisPress = true; shoot(); }
 }
 function startReload() {
@@ -2660,16 +2721,34 @@ function nadeStep(p, dt) {
   }
   p.y = Math.max(groundAt(p.x, p.z) + .07, p.y);
 }
-// ---- grenade aiming: hold G (or the touch button) to see the arc and the blast spot, release to throw
-let nadeAim = false, nadeArc = null, nadeRing = null;
+// ---- throwing (the grenade in hand, weapon 4): holding the trigger pulls the pin and draws the arm back (NADE.pin s, the arc
+// and the blast spot show once it's back), letting go throws; the grenade leaves the hand NADE.release s into the swing.
+// nadePh: 0 holding, 1 pin out / arm back, 2 throwing. me.throwS is the same as one number (see nadePose) for the
+// third-person body, the recording and the friend's game
+let nadeAim = false, nadeArc = null, nadeRing = null, nadePh = 0, nadeT = 0;
 const ARC_PTS = 70;
-function startNadeAim() { if (nades > 0 && playing() && !me.dead) nadeAim = true; }
-function cancelNadeAim() { nadeAim = false; if (nadeArc) { nadeArc.visible = false; nadeRing.visible = false; } }
-function releaseNadeAim() {
-  if (!nadeAim) return;
-  cancelNadeAim();
-  if (nades > 0 && playing() && !me.dead) { nades--; if (NET.role === 'client') netSend({ t: 'nade', p: nadeLaunch(me) }); else throwNade(me); }
+function cancelNadeAim() { nadeAim = false; if (nadePh === 1) nadePh = 0; if (nadeArc) { nadeArc.visible = false; nadeRing.visible = false; } }
+function nadeTick(dt) {
+  if (me.dead || !playing()) { nadeAim = false; return; }
+  if (nadePh === 0) {
+    if (triggerHeld && switchT <= 0 && proneT <= 0 && nades > 0) { nadePh = 1; nadeT = 0; sfx('empty', .45); }   // the pin
+  } else if (nadePh === 1) {
+    nadeT += dt; nadeAim = nadeT >= NADE.pin;
+    if (!triggerHeld && nadeT >= NADE.pin) { nadePh = 2; nadeT = 0; nadeAim = false; }   // let go early: thrown as soon as the arm is back
+  } else {
+    const t0 = nadeT; nadeT += dt;
+    if (t0 < NADE.release && nadeT >= NADE.release && nades > 0) {
+      nades--; sfx('slide', .35);
+      if (NET.role === 'client') netSend({ t: 'nade', p: nadeLaunch(me) }); else throwNade(me);
+    }
+    if (nadeT >= NADE.throwT) {
+      nadePh = 0; nadeT = 0;
+      if (nades > 0) { switchDur = NADE.draw; switchT = NADE.draw; }   // the next grenade comes out
+      else { triggerHeld = false; selectWeapon(WEAPONS[prevWeapon] && prevWeapon !== 'nade' ? prevWeapon : loadoutPrimary); }   // the gun fires on a new press only
+    }
+  }
 }
+const throwState = () => (weapon !== 'nade' ? 0 : nadePh === 1 ? Math.min(1, nadeT / NADE.pin) : nadePh === 2 ? 1 + Math.min(1, nadeT / NADE.throwT) : 0);
 function updateNadeArc() {
   if (!nadeArc) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_PTS * 3), 3));
@@ -2707,9 +2786,11 @@ function updateNades(dt) {
       for (const a of G.actors) {
         if (a.dead) continue;
         if (a !== p.owner && a.team === p.owner.team) continue;
-        const tgt = [a.x, a.y + 1, a.z], dist = Math.hypot(tgt[0] - c[0], tgt[1] - c[1], tgt[2] - c[2]);
-        if (dist > NADE.radius || !lineClear(c, tgt)) continue;
-        damage(a, NADE.dmg * (1 - dist / NADE.radius) ** .8, p.owner, NADE.n, false, { x: p.x, z: p.z });
+        // hit if the blast reaches the body or the head (a head over low cover still gets hurt)
+        const tgt = [a.x, a.y + 1, a.z], head = [a.x, a.y + eyeH(a), a.z], dist = Math.hypot(tgt[0] - c[0], tgt[1] - c[1], tgt[2] - c[2]);
+        if (dist > NADE.radius || !(lineClear(c, tgt) || lineClear(c, head))) continue;
+        // falloff: deadly within about 2.8 m, about half health at 6.5 m, a scratch at the 9 m edge
+        damage(a, NADE.dmg * (1 - dist / NADE.radius) ** .7, p.owner, NADE.n, false, { x: p.x, z: p.z });
         if (p.owner.isMe && a !== me) hitMarker(a.dead);
       }
     }
@@ -2723,7 +2804,8 @@ const PICK_GAIN = { rifle: 60, sniper: 10, pistol: 24, smg: 64, shotgun: 14, rev
 function dropPickup(a) {
   if (PICKUPS.length >= 14) removePickup(0);
   const g = new THREE.Group();
-  const key = (a.isMe ? weapon : a.weapon) || 'rifle', gun = CHAR.guns && CHAR.guns[key] ? CHAR.guns[key].clone() : rifleModel(1.05);   // the weapon they held
+  let key = (a.isMe ? weapon : a.weapon) || 'rifle'; if (key === 'nade') key = a.isMe ? loadoutPrimary : 'rifle';   // a grenade in hand: the gun on the back drops
+  const gun = CHAR.guns && CHAR.guns[key] ? CHAR.guns[key].clone() : rifleModel(1.05);   // the weapon they held
   gun.position.set(0, .05, 0); gun.rotation.set(0, Math.random() * 6, Math.PI / 2); g.add(gun);
   const box = meshAt(new THREE.BoxGeometry(.3, .16, .2), MAT.ammoBox, .25, .08, .2); g.add(box);
   const ring = new THREE.Mesh(new THREE.RingGeometry(.45, .55, 28), MAT.pickRing); ring.rotation.x = -Math.PI / 2; ring.position.y = .02; g.add(ring);
@@ -2992,9 +3074,9 @@ function hud(dt) {
   $('hpBar').style.width = `${me.hp}%`;
   $('hpBar').style.background = me.hp > 50 ? 'var(--ok)' : me.hp > 25 ? 'var(--amber)' : 'var(--red)';
   const w = WEAPONS[weapon], a = ammo[weapon];
-  $('ammoMag').textContent = w.melee ? '-' : a.mag;
+  $('ammoMag').textContent = w.nade ? nades : w.melee ? '-' : a.mag;
   $('ammoRes').textContent = w.melee ? '' : `/ ${a.res}`;
-  $('wName').textContent = `${w.n} · 수류탄 ${nades}`;
+  $('wName').textContent = w.nade ? w.n : `${w.n} · 수류탄 ${nades}`;
   $('reloadMsg').hidden = !(reloadT > 0);
   $('scope').hidden = !(scopedIn() && !me.dead);
   // hip fire: spread lines (sniper shows only the center dot); aiming uses the weapon's own sights (the red dot lives in the reflex sight)
@@ -3057,6 +3139,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Digit1') selectWeapon(sl[0]);
   if (e.code === 'Digit2') selectWeapon(sl[1]);
   if (e.code === 'Digit3') selectWeapon(sl[2]);
+  if (e.code === 'Digit4' || e.code === 'KeyG') selectWeapon('nade');   // the grenade is thrown with the fire button once it's out
   if (e.code === 'KeyX') selectWeapon(prevWeapon);
   if (settings.leanMode === 'toggle' && (e.code === 'KeyQ' || e.code === 'KeyE')) { const d = e.code === 'KeyQ' ? -1 : 1; leanToggle = leanToggle === d ? 0 : d; }
   if (e.code === 'KeyR') startReload();
@@ -3064,9 +3147,8 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Space' && me.prone) { spaceBlock = true; setProne(false); }
   if (e.code === 'KeyC') { if (me.prone) setProne(false, true); else if (!tryStartSlide() && settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; }
   if (e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') e.preventDefault();   // keep Ctrl+S, Ctrl+D... from reaching the browser
-  if (e.code === 'KeyG') startNadeAim();
 });
-window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyC') slideHoldC = false; if (e.code === 'KeyG') releaseNadeAim(); });
+window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyC') slideHoldC = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; triggerHeld = false; if (settings.aimMode === 'hold') setAim(false); });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 // the mouse wheel only zooms the sniper scope (one notch, one step); it no longer switches weapons
@@ -3138,8 +3220,7 @@ $('tAim').addEventListener('pointerdown', e => { e.preventDefault(); aimPress(tr
 $('tAim').addEventListener('pointerup', () => aimPress(false)); $('tAim').addEventListener('pointercancel', () => aimPress(false));
 tap('tReload', startReload);
 tap('tSwap', () => { const sl = slots(), i = sl.indexOf(weapon); selectWeapon(sl[(i + 1) % sl.length]); });
-tap('tNade', startNadeAim);
-$('tNade').addEventListener('pointerup', releaseNadeAim); $('tNade').addEventListener('pointercancel', cancelNadeAim);
+tap('tNade', () => selectWeapon('nade'));   // out comes the grenade; the fire button throws it
 $('tCrouch').addEventListener('pointerdown', e => {
   e.preventDefault(); if (!playing() || me.dead) return;
   if (settings.crouchMode === 'toggle') crouchToggle = !crouchToggle; else touchCrouch = true;
@@ -3225,8 +3306,8 @@ function bindSliders() {
 // key guide panel: F1 in a match (the game keeps running), or the button in the menu / settings
 const KEY_GUIDE = [
   [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께) · 앉아 있으면 일어남'], ...(CTRL_WALK ? [[['Ctrl'], '천천히 걷기 (발소리 작게)']] : []), [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
-  [['우클릭'], '정조준 · 스코프 (달리기 풀림)'], [['R'], '재장전'], [['1', '2', '3'], '주무기 · 보조무기 · 칼'], [['X'], '이전 무기'],
-  [['휠'], '저격 스코프 배율 (3 · 4 · 5.5 · 8배)'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 (누르고 조준, 떼면 던짐)'],
+  [['우클릭'], '정조준 · 스코프 (달리기 풀림)'], [['R'], '재장전'], [['1', '2', '3', '4'], '주무기 · 보조무기 · 칼 · 수류탄'], [['X'], '이전 무기'],
+  [['휠'], '저격 스코프 배율 (3 · 4 · 5.5 · 8배)'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 꺼내기 (4와 같음) · 클릭을 누르고 있으면 안전핀을 뽑고 궤적 표시, 떼면 던짐'],
   [['Space'], '점프'], [['C'], '앉기 · 달리면서 누르면 슬라이딩'], [['Z'], '엎드리기 (Z·Space: 일어서기, C: 앉기)'], [['Tab'], '점수판'], [['Enter'], '채팅'],
   [['F1'], '키 가이드 열기 · 닫기'], [['F11'], '전체 화면 (설정에서도 가능)'], [['Esc'], '일시정지'],
   [['F8'], '맵 점검 (보급창고): 순간이동, 위에서 보기, 스폰→사이트 시간'],
@@ -3344,7 +3425,7 @@ function recFrame() {
   // grenades in flight, each with an id so one can be followed (the friend's game only knows them by slot)
   const n = NET.role === 'client' ? NET.nadeMeshes.map((m, i) => m.visible ? [1000 + i, m.position.x, m.position.y, m.position.z] : null).filter(Boolean)
     : G.nades.map(p => [p.id || (p.id = ++NADE_SEQ), p.x, p.y, p.z]);
-  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0, (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, a.leanOff || 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0]), n });
+  f.push({ t, a: G.actors.map(a => [a.x, a.y, a.z, a.yaw, a.pitch || 0, a.crouch ? 1 : 0, a.dead ? 1 : 0, (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, a.leanOff || 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0, R2(a.throwS || 0)]), n });
   while (f.length && f[0].t < t - REC_KEEP) f.shift();
   while (REC.shots.length && REC.shots[0].t < t - REC_KEEP) REC.shots.shift();
   for (const id in STREAKS) { const st = STREAKS[id]; if (st.captureAt && t >= st.captureAt) captureStreak(st); }
@@ -3374,7 +3455,7 @@ function recKill(killer, victim, w, head) {
   if (!st || kill.t - st.kills[st.kills.length - 1].t > 4) st = STREAKS[kill.k] = { kills: [] };
   st.kills.push(kill); st.captureAt = kill.t + 1.6;
 }
-const RP = { on: false, t: 0, t0: 0, t1: 0, kill: null, proxies: [], meMesh: null, cam: null };
+const RP = { on: false, t: 0, t0: 0, t1: 0, kill: null, proxies: [], meMesh: null, cam: null, nadeMeshes: new Map() };
 // the final kill if it is in the recording, otherwise the MVP's latest kill
 // The best play of the match when it was a great one, otherwise the winning team's last kill before the match was decided.
 function pickHighlight() {
@@ -3419,7 +3500,7 @@ function startReplay() {
       if (id !== null) {
         const first = f.find(fr => (fr.n || []).some(q => q[0] === id));
         RP.nade = { id, boomT: boom.t, p: boom.p, mesh: null };
-        RP.t0 = Math.max(f[0].t, (first ? first.t : boom.t - 2.5) - .7); RP.t = RP.t0;
+        RP.t0 = Math.max(f[0].t, (first ? first.t : boom.t - 2.5) - 1.1); RP.t = RP.t0;
       }
     }
   } else if (RP.kind !== 'knife') {
@@ -3457,6 +3538,7 @@ function endReplay() {
   RP.on = false; if ($('killcam')) { $('killcam').hidden = true; $('killcam').classList.remove('bullet'); }
   if (RP.bullet) { scene.remove(RP.bullet); RP.bullet = null; }
   if (RP.nade && RP.nade.mesh) { scene.remove(RP.nade.mesh); RP.nade.mesh = null; }
+  for (const m of RP.nadeMeshes.values()) scene.remove(m); RP.nadeMeshes.clear();
   if (RP.meMesh) RP.meMesh.visible = false;
   if (vm && vm.root) vm.root.visible = true;
 }
@@ -3465,11 +3547,13 @@ function skipReplay() { if (G.state !== 'replay') return; endReplay(); showResul
 function replaySpeed(t) {
   for (const k of RP.kills || []) if (k !== RP.kill && Math.abs(t - k.t) < .35) return .35;   // earlier kills of a streak
   const d = t - RP.kill.t; if (RP.nade) return RP.phase === 'post' ? (d < .9 ? .4 : 1) : (t > RP.nade.boomT - .6 ? .35 : 1); if (RP.kind === 'knife') return d > -.6 && d < .9 ? .2 : 1; if (RP.shot) return RP.phase === 'post' ? (d < .9 ? .45 : 1) : (t > RP.shot.t - .5 ? .5 : 1); return d > -.45 && d < .7 ? .28 : 1; }
+// the throw state between two recorded frames: smooth within a throw, a jump (a throw ending, the next grenade) taken as is
+const throwMix = (a, b, k) => (Math.abs(b - a) > .6 ? (k < .5 ? a : b) : a + (b - a) * k);
 function sampleRec(t) {
   const f = RP.src.frames; let i = 1;
   while (i < f.length - 1 && f[i].t < t) i++;
   const p = f[i - 1], q = f[i], k = Math.max(0, Math.min(1, (t - p.t) / Math.max(1e-4, q.t - p.t)));
-  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6], k < .5 ? r[7] : s[7], k < .5 ? r[8] : s[8], (r[9] || 0) + ((s[9] || 0) - (r[9] || 0)) * k, k < .5 ? r[10] : s[10], k < .5 ? r[11] : s[11], k < .5 ? r[12] : s[12], k < .5 ? r[13] : s[13]]; });
+  return p.a.map((r, j) => { const s = q.a[j] || r; return [r[0] + (s[0] - r[0]) * k, r[1] + (s[1] - r[1]) * k, r[2] + (s[2] - r[2]) * k, r[3] + wrap(s[3] - r[3]) * k, r[4] + (s[4] - r[4]) * k, k < .5 ? r[5] : s[5], k < .5 ? r[6] : s[6], k < .5 ? r[7] : s[7], k < .5 ? r[8] : s[8], (r[9] || 0) + ((s[9] || 0) - (r[9] || 0)) * k, k < .5 ? r[10] : s[10], k < .5 ? r[11] : s[11], k < .5 ? r[12] : s[12], k < .5 ? r[13] : s[13], throwMix(r[14] || 0, s[14] || 0, k)]; });
 }
 function bulletMesh() {
   const g = new THREE.Group();
@@ -3491,6 +3575,15 @@ function bulletMesh() {
   g.add(body, tip, trail);
   if (RP.kind === 'sniper') { g.scale.setScalar(1.5); trail.scale.set(1, 3, 1); trail.position.z = 1.4; }
   return g;
+}
+// every grenade in the air at time t of the recording: [id, x, y, z], moved between the two frames around t
+function nadesAt(t) {
+  const f = RP.src.frames; let i = 1;
+  while (i < f.length - 1 && f[i].t < t) i++;
+  const p = f[i - 1], q = f[i]; if (!p || !q) return [];
+  const k = Math.max(0, Math.min(1, (t - p.t) / Math.max(1e-4, q.t - p.t))), out = [];
+  for (const b of q.n || []) { const a = (p.n || []).find(z => z[0] === b[0]); if (a) out.push([b[0], a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k]); else if (k > .5) out.push(b); }
+  return out;
 }
 function nadeAt(t) {
   const f = RP.src.frames, id = RP.nade.id; let prev = null;
@@ -3540,12 +3633,26 @@ function updateReplay(dt) {
       explosionFx(RP.nade.p); if (!playSnd('grenade_explosion')) sfx('boom', 1); RP.phase = 'post'; RP.impact = RP.nade.p.slice(); RP.cam = null; RP.look = null;
     }
   }
+  // the other grenades in the air (the kill's own one is drawn and followed above) and every blast in this slice
+  const live = new Set();
+  for (const [id, x, y, z] of nadesAt(RP.t)) {
+    if (RP.nade && id === RP.nade.id) continue;
+    let m = RP.nadeMeshes.get(id);
+    if (!m) { m = new THREE.Mesh(new THREE.SphereGeometry(.07, 12, 10), std({ color: 0x4a5634, roughness: .6 })); m.castShadow = true; scene.add(m); RP.nadeMeshes.set(id, m); }
+    m.position.set(x, y, z); m.rotation.x += step * 8; live.add(id);
+  }
+  for (const [id, m] of RP.nadeMeshes) if (!live.has(id)) { scene.remove(m); RP.nadeMeshes.delete(id); }
+  for (const b of RP.src.booms || []) {
+    if (b.t <= prevT || b.t > RP.t || (RP.nade && b.t === RP.nade.boomT)) continue;
+    explosionFx(b.p); const c = camera.position, d = Math.hypot(b.p[0] - c.x, b.p[2] - c.z);
+    if (!playSnd('grenade_explosion', { vol: 1 / (1 + d / 20) })) sfx('boom', 1 / (1 + d / 12));
+  }
   const st = sampleRec(RP.t);
   RP.proxies.forEach((p, i) => {
     const r = st[i]; if (!r || !p.mesh) return;
     const sp = Math.hypot(r[0] - p.x, r[2] - p.z) / Math.max(1e-4, step);
     const wasDead = p.dead; p.dead = !!r[6];
-    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5]; p.aiming = !!r[7]; p.sprintF = !!r[8]; p.leanOff = r[9] || 0; p.sliding = !!r[10]; p.weapon = WKEYS[r[11]] || null; p.prone = !!r[12]; p.air = !!r[13];
+    p.x = r[0]; p.y = r[1]; p.z = r[2]; p.yaw = r[3]; p.pitch = r[4]; p.crouch = !!r[5]; p.aiming = !!r[7]; p.sprintF = !!r[8]; p.leanOff = r[9] || 0; p.sliding = !!r[10]; p.weapon = WKEYS[r[11]] || null; p.prone = !!r[12]; p.air = !!r[13]; p.throwS = r[14] || 0;
     if (p.dead && !wasDead) { const kl = REC.kills.find(x => x.v === i && Math.abs(x.t - RP.t) < .6); p.lastHead = kl ? kl.head : true; }
     if (p.dead) { if (!wasDead) p.deathT = 0; if (p.deathT > 2.2) { p.mesh.visible = false; } else { p.mesh.position.set(p.x, p.y, p.z); p.mesh.rotation.set(0, p.yaw, 0); deathPose(p, step); } }
     else animateSoldier(p, step, Math.min(8, sp));
@@ -3621,7 +3728,8 @@ function renderReplay(dt) {
     if (scoped) return;
     if (key && vm.models[key]) {
       for (const m in vm.models) vm.models[m].visible = m === key;
-      const kd = RP.kill.t - RP.t, SP = slashPose(RP.kind === 'knife' && kd < SLASH_TIME * .7 && kd > -SLASH_TIME * .3 ? Math.min(1, (SLASH_TIME * .7 - kd) / SLASH_TIME) : -1);
+      const kd = RP.kill.t - RP.t, SP = key === 'nade' ? nadePose(kp.throwS) : slashPose(RP.kind === 'knife' && kd < SLASH_TIME * .7 && kd > -SLASH_TIME * .3 ? Math.min(1, (SLASH_TIME * .7 - kd) / SLASH_TIME) : -1);
+      if (key === 'nade') nadeHand(kp.throwS);
       const sp = Math.min(1, Math.hypot(kp.x - (RP.lastKx ?? kp.x), kp.z - (RP.lastKz ?? kp.z)) / Math.max(1e-3, dt) / 5); RP.lastKx = kp.x; RP.lastKz = kp.z;
       RP.bob = (RP.bob || 0) + dt * sp * 9;
       vm.root.visible = true; vm.flash.visible = RP.kick > .7;
@@ -3730,7 +3838,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-14 #52)';
+const GAME_VERSION = '1.0 (10-14 #53)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -4139,7 +4247,7 @@ function netRemote(a, dt) {
     if (s) { a.x = s[1]; a.y = s[2]; a.z = s[3]; a.yaw = s[4]; }
     else { const k = Math.min(1, dt * 15); a.x += (m.x - a.x) * k; a.y += (m.y - a.y) * k; a.z += (m.z - a.z) * k; a.yaw += wrap(m.yaw - a.yaw) * k; }
     a.pitch = m.pitch; a.crouch = !!m.c; a.leanOff = Number.isFinite(m.l) ? m.l : 0;
-    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp; a.sneak = !!m.wk; a.sliding = !!m.sl; if (WKEYS[m.wp]) a.weapon = WKEYS[m.wp]; a.prone = !!m.pr; a.air = !!m.ar;
+    a.vx = m.vx || 0; a.vz = m.vz || 0; a.aiming = !!m.ad; a.sprintF = !!m.sp; a.sneak = !!m.wk; a.sliding = !!m.sl; if (WKEYS[m.wp]) a.weapon = WKEYS[m.wp]; a.prone = !!m.pr; a.air = !!m.ar; a.throwS = Number.isFinite(m.th) ? m.th : 0;
   }
   a.protect = Math.max(0, a.protect - dt);
   animateSoldier(a, dt, Math.hypot(a.vx || 0, a.vz || 0));
@@ -4151,7 +4259,7 @@ function netHostTick(dt) {
   if (NET.sendT > 0 || !(NET.conn && NET.conn.open)) return;
   NET.sendT = .05;
   netSend({ t: 'sn', ts: +netNow().toFixed(3), tm: R2(G.time), s: [G.score.blue, G.score.red],
-    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0, Math.round(a.dmg || 0), (a.isMe ? me.sneak : a.sneak) ? 1 : 0]),
+    a: G.actors.map(a => [R2(a.x), R2(a.y), R2(a.z), R2(a.yaw), R2(a.pitch), a.crouch ? 1 : 0, R2(a.leanOff || 0), Math.ceil(a.hp), a.dead ? 1 : 0, a.kills, a.deaths, R2(Math.max(0, a.respawn || 0)), a.protect > 0 ? 1 : 0, R2(a.spotted || 0), (a.isMe ? aiming : a.aiming) ? 1 : 0, (a.isMe ? me.sprint : a.sprintF) ? 1 : 0, (a.isMe ? slideT > 0 : a.sliding) ? 1 : 0, WKEYS.indexOf(heldWeapon(a)), a.prone ? 1 : 0, airOf(a) ? 1 : 0, Math.round(a.dmg || 0), (a.isMe ? me.sneak : a.sneak) ? 1 : 0, R2(a.throwS || 0)]),
     n: G.nades.map(p => [R2(p.x), R2(p.y), R2(p.z)]), sh: NET.shots });
   NET.shots = [];
 }
@@ -4181,7 +4289,7 @@ function netApplySnap(m) {
     if (nowDead && !wasDead) { a.dead = true; a.deathT = 0; dropPickup({ x: r[0], y: r[1], z: r[2] }); }
     else if (!nowDead && wasDead) { a.dead = false; a.x = r[0]; a.y = r[1]; a.z = r[2]; a.yaw = r[3]; a.mesh.visible = true; a.mesh.rotation.set(0, a.yaw, 0); a.deathT = 0; }
     if (r[7] < a.hp - .5 && r[7] > 0 && snapHitOk(a)) bodyHitSound(a);
-    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]]; a.prone = !!r[18]; a.air = !!r[19]; a.sneak = !!r[21];
+    a.hp = r[7]; a.protect = r[12] ? 1 : 0; a.spotted = Math.max(a.spotted || 0, r[13] || 0); a.aiming = !!r[14]; a.sprintF = !!r[15]; a.sliding = !!r[16]; if (WKEYS[r[17]]) a.weapon = WKEYS[r[17]]; a.prone = !!r[18]; a.air = !!r[19]; a.sneak = !!r[21]; a.throwS = r[22] || 0;
   });
   for (const a of G.actors) a.prevKills = a.kills;
   // grenades in flight
@@ -4220,7 +4328,7 @@ function netClientStep(dt) {
   NET.sendT -= dt;
   if (NET.sendT <= 0) {
     NET.sendT = .05;
-    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0, wk: me.sneak ? 1 : 0, sl: slideT > 0 ? 1 : 0, wp: WKEYS.indexOf(weapon), pr: me.prone ? 1 : 0, ar: me.ground ? 0 : 1 });
+    netSend({ t: 'st', ts: +netNow().toFixed(3), x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), pitch: R2(me.pitch), c: me.crouch ? 1 : 0, l: R2(me.leanOff || 0), vx: R2(me.vx || 0), vz: R2(me.vz || 0), ad: aiming ? 1 : 0, sp: me.sprint ? 1 : 0, wk: me.sneak ? 1 : 0, sl: slideT > 0 ? 1 : 0, wp: WKEYS.indexOf(weapon), pr: me.prone ? 1 : 0, ar: me.ground ? 0 : 1, th: R2(me.throwS || 0) });
   }
 }
 // ping every 2 s, and whether the browsers talk directly or through PeerJS's relay server (shown top-left in matches)
@@ -4353,7 +4461,7 @@ function render(dt) {
     vm.boltT = Math.max(0, (vm.boltT || 0) - dt);
     vm.flashT = (vm.flashT || 0) - dt; if (vm.flashT <= 0) vm.flash.visible = false;
     const ads = aiming && !w.melee;   // a scoped rifle also comes up to the eye before the scope view
-    const sw = switchT > 0 ? switchT / .35 : 0, rl = reloadT > 0 ? Math.sin(Math.min(1, 1 - reloadT / w.reload) * Math.PI) : 0;
+    const sw = switchT > 0 ? switchT / switchDur : 0, rl = reloadT > 0 ? Math.sin(Math.min(1, 1 - reloadT / w.reload) * Math.PI) : 0;
     const mv = Math.min(1, Math.hypot(me.vx, me.vz) / 5);
     const bx = Math.cos(bob) * .012 * mv, by = Math.abs(Math.sin(bob)) * .012 * mv;
     // a scoped rifle comes up a little slower than iron sights, so bringing it to the eye can be seen
@@ -4366,7 +4474,8 @@ function render(dt) {
     vm.ax = vm.ax === undefined ? tx : vm.ax + (tx - vm.ax) * ar;
     vm.ay = vm.ay === undefined ? ty : vm.ay + (ty - vm.ay) * ar;
     vm.az = vm.az === undefined ? tz : vm.az + (tz - vm.az) * ar;
-    const SP = slashPose(vm.knifeT > 0 ? 1 - vm.knifeT / SLASH_TIME : -1);   // a knife swing in progress
+    const SP = w.nade ? nadePose(me.throwS) : slashPose(vm.knifeT > 0 ? 1 - vm.knifeT / SLASH_TIME : -1);   // a throw or a knife swing in progress
+    if (w.nade) nadeHand(me.throwS);
     vm.root.position.set(vm.ax + SP.x, vm.ay - sw * .3 - rl * .12 + SP.y, vm.az + vm.kick * (ads ? .02 : .05) + SP.z);
     const bolt = vm.boltT > 0 ? Math.sin(vm.boltT / .9 * Math.PI) : 0;
     vm.tilt = (vm.tilt || 0) + ((ads ? w.adsTilt || 0 : 0) - (vm.tilt || 0)) * Math.min(1, dt * 18);
