@@ -380,7 +380,7 @@ const DEPOT = {
   ],
   basement: {
     rooms: [[36, 46, 48, 56], [48, 49, 59, 53], [59, 49, 63, 65], [63, 61, 70, 65], [70, 55, 77, 65]],   // maintenance room, bent tunnel, B exit room
-    openings: [[36, 46, 42.5, 48.8], [72, 57, 74.8, 63.5]],   // stairwells, open to the ground floor
+    openings: [[38, 52, 44.5, 54.8], [72, 57, 74.8, 63.5]],   // stairwells, open to the ground floor
   },
   floor2: [[34.5, 24.5, 55.5, 57.5], [56, 26.5, 65.5, 29.5], [66, 14, 69.5, 31.5], [42, 58, 54, 61]],   // central 2F, bridge, A catwalk, balcony
   floor2Holes: [[36.5, 24.5, 43, 27.3], [47.5, 54.7, 54, 57.5]],
@@ -389,7 +389,7 @@ const DEPOT = {
     [36.5, 24.5, 43, 27.3, 0, 4, '+x'],     // s1: central building, north-west, to 2F
     [47.5, 54.7, 54, 57.5, 0, 4, '-x'],     // s2: central building, south-east, to 2F
     [69.5, 14, 76, 16.8, 0, 4, '-x'],       // s5: A floor up to the catwalk
-    [36, 46, 42.5, 48.8, -4, 0, '-x'],      // s3: central storage (by the west door) down to the basement
+    [38, 52, 44.5, 54.8, -4, 0, '-x'],      // s3: central building, right inside the south-west door, down to the basement
     [72, 57, 74.8, 63.5, -4, 0, '-z'],      // s4: basement up into B (comes out behind a container)
   ],
   // rails [x0, z0, x1, z1, floor y, height]: 1 m ones can be jumped over, the balcony's (1.25 m) can't
@@ -398,16 +398,16 @@ const DEPOT = {
     [56, 29.5, 65.5, 29.7, 4, 1],
     [69.5, 16.8, 69.7, 31.7, 4, 1], [66, 13.8, 69.5, 14, 4, 1], [66, 31.5, 69.5, 31.7, 4, 1],
     [42, 61, 54, 61.2, 4, 1.25], [41.8, 58, 42, 61.2, 4, 1.25], [54, 58, 54.2, 61.2, 4, 1.25],
-    [36, 48.8, 42.7, 49, 0, 1], [42.5, 46, 42.7, 48.8, 0, 1],
+    [39.5, 51.8, 44.7, 52, 0, 1], [38, 54.8, 44.7, 55, 0, 1], [44.5, 52, 44.7, 54.8, 0, 1],
     [71.8, 57, 72, 63.7, 0, 1], [74.8, 57, 75, 63.7, 0, 1], [72, 63.5, 74.8, 63.7, 0, 1],
   ],
   // everything else [x0, z0, x1, z1, y0, y1, material]
   boxes: [
-    // central building, ground floor: bent corridor, two offices, storage
+    // central building, ground floor: one office (north-east), otherwise an open hall with a bent divider in the middle that
+    // breaks the door-to-door lines and gives corners to fight round; the basement stair right inside the south-west door
     [46, 24.5, 46.5, 30, 0, 3.7, 'concrete'], [46, 32.5, 46.5, 35.5, 0, 3.7, 'concrete'], [46.5, 35, 55.5, 35.5, 0, 3.7, 'concrete'],
-    [34.5, 34.5, 41.5, 35, 0, 3.7, 'concrete'], [41, 35, 41.5, 38, 0, 3.7, 'concrete'], [41, 40.5, 41.5, 45, 0, 3.7, 'concrete'],
-    [34.5, 45, 42, 45.5, 0, 3.7, 'concrete'], [45.5, 45, 55.5, 45.5, 0, 3.7, 'concrete'],
-    [50, 39, 51.4, 40.4, 0, 1.2, 'crate'], [44, 53, 45.4, 54.4, 0, 1.2, 'crate'], [44.1, 53.1, 45.3, 54.3, 1.2, 2.2, 'crate'], [50, 47.5, 52.5, 48.1, 0, 1.1, 'barrier'],
+    [44, 33, 44.5, 39.5, 0, 3.7, 'concrete'], [44.5, 39, 48, 39.5, 0, 3.7, 'concrete'], [47.5, 39.5, 48, 46, 0, 3.7, 'concrete'],
+    [50, 39, 51.4, 40.4, 0, 1.2, 'crate'], [50, 50.5, 51.4, 51.9, 0, 1.2, 'crate'], [50.1, 50.6, 51.3, 51.8, 1.2, 2.2, 'crate'], [38, 41, 40.5, 41.6, 0, 1.1, 'barrier'],
     // central building, second floor: two offices in the north, storeroom in the south-west, open hall
     [34.5, 35, 39, 35.5, 4, 8.5, 'concrete'], [41.5, 35, 50, 35.5, 4, 8.5, 'concrete'], [52.5, 35, 55.5, 35.5, 4, 8.5, 'concrete'],
     [46, 24.5, 46.5, 29.5, 4, 8.5, 'concrete'], [46, 32, 46.5, 35, 4, 8.5, 'concrete'],
@@ -438,7 +438,7 @@ const DEPOT = {
     // walls in front of the defender spawn exits (no straight look from the spawn into A or B)
     [94.5, 25.5, 97.5, 29.5, 0, 3, 'concrete'], [94.5, 54.5, 97.5, 58.5, 0, 3, 'concrete'],
     // basement: machinery in the maintenance room, pipes along the tunnel
-    [45, 52, 47.5, 54, -4, -2.6, 'metalwall'], [36.2, 53.5, 38.5, 55.8, -4, -2.8, 'metalwall'], [62.4, 54, 62.9, 60, -4, -3.2, 'metalwall'],
+    [45, 47, 47.5, 49, -4, -2.6, 'metalwall'], [36.2, 46.2, 38.5, 48.5, -4, -2.8, 'metalwall'], [62.4, 54, 62.9, 60, -4, -3.2, 'metalwall'],
   ],
   pillars: [[74, 12], [82, 12], [74, 24.5], [90, 20], [82, 20]],
   racks: [[88, 6.2, 93.5, 7.4, 4]],
@@ -455,13 +455,13 @@ const DEPOT = {
     { text: 'B', sub: '←', pos: [94.6, 2.6, 58.5], ry: Math.PI / 2, w: 1.6, h: 1.1, bg: '#d9772b', fg: '#1b1b1b' },
     { text: 'CENTRAL HALL', sub: '1F · 2F · B1', pos: [33.9, 4.3, 40], ry: -Math.PI / 2, w: 5, h: 1.3, bg: '#e6e0d0', fg: '#262626' },
     { text: '2F', sub: '↑', pos: [34.6, 2.3, 25.9], ry: Math.PI / 2, w: 1.4, h: 1, bg: '#e6e0d0', fg: '#262626' },
-    { text: 'B1', sub: '지하 → B', pos: [39.4, 2.5, 45.6], ry: 0, w: 2.4, h: 1.2, bg: '#2f8077', fg: '#ffffff' },
+    { text: 'B1', sub: '지하 → B', pos: [41, 2.4, 57.4], ry: Math.PI, w: 2.4, h: 1.2, bg: '#2f8077', fg: '#ffffff' },
     { text: 'B', sub: '↑ B 사이트', pos: [73.4, -1.5, 64.9], ry: Math.PI, w: 2.4, h: 1.2, bg: '#d9772b', fg: '#1b1b1b' },
     { text: 'BLUE SPAWN', sub: '북: A · 동: 중앙 · 남: B', pos: [4.1, 2.6, 42], ry: Math.PI / 2, w: 5, h: 1.5, bg: '#3a5d90', fg: '#ffffff' },
     { text: 'RED SPAWN', sub: '북: A · 남: B', pos: [103.4, 2.6, 42], ry: -Math.PI / 2, w: 5, h: 1.5, bg: '#8f3b35', fg: '#ffffff' },
   ],
   // stair links for the bots' map [x, z, layer] -> [x, z, layer]; layers: 0 ground, 1 second floor, 2 basement
-  links: [[35.6, 25.9, 0, 44, 25.9, 1], [54.9, 56.1, 0, 46.6, 56.1, 1], [77, 15.4, 0, 68.6, 15.4, 1], [35.2, 47.4, 0, 43.6, 47.4, 2], [73.4, 56.2, 0, 73.4, 64.4, 2]],
+  links: [[35.6, 25.9, 0, 44, 25.9, 1], [54.9, 56.1, 0, 46.6, 56.1, 1], [77, 15.4, 0, 68.6, 15.4, 1], [37.2, 53.4, 0, 45.4, 53.4, 2], [73.4, 56.2, 0, 73.4, 64.4, 2]],
   upper: [[40, 30], [51, 30], [44, 40], [52, 49], [37, 51], [61, 28], [67.7, 24], [48, 59.5]],
   lower: [[42, 52], [54, 51], [61, 57], [66, 63], [71, 59], [76, 59]],
   // names on the HUD, first match wins; lv: '2F', 'B1' or ground
@@ -2278,7 +2278,25 @@ function endMusic(kind, vol) {
 }
 
 // =============== actors ===============
-const HEAD_R = .16;
+// Where an actor's head and body are for shots. With a soldier model on screen they come from its bones, so they follow
+// crouching, aiming, leaning and running (before, a crouched soldier's head was 35 cm from its hit sphere). The drawn head
+// with its helmet is about 24 cm across, its middle 9.3 cm above the Head bone. Without a model (the local player, the
+// built-in block soldier) fixed heights are used.
+const HEAD_R = .13, HEAD_MID = [0, .093, .003];
+const _hv = new THREE.Vector3(), _hs = new THREE.Vector3();
+function hitShape(a) {
+  const B = !a.prone && a.mesh && a.mesh.visible && a.mesh.userData.rig && a.mesh.userData.rig.bones;
+  if (B && B.Head && B.Hips && B.Neck) {
+    B.Head.updateWorldMatrix(true, false);           // the bone chain up to the model is brought up to date
+    const sc = B.Head.getWorldScale(_hs).x, h = _hv.set(HEAD_MID[0] / sc, HEAD_MID[1] / sc, HEAD_MID[2] / sc).applyMatrix4(B.Head.matrixWorld);
+    const head = [h.x, h.y, h.z];
+    const n = B.Neck.getWorldPosition(_hv), nx = n.x, ny = n.y, nz = n.z, hp = B.Hips.getWorldPosition(_hv);
+    const bx = (nx + hp.x) / 2, bz = (nz + hp.z) / 2;
+    return { head, body: { x0: bx - .26, x1: bx + .26, z0: bz - .26, z1: bz + .26, y0: a.y, y1: Math.max(a.y + .5, ny - .02) } };
+  }
+  const [lx, lz] = leanVec(a), bx = a.x + lx * LEAN_SHIFT, bz = a.z + lz * LEAN_SHIFT;   // a leaning body has stepped out with its head
+  return { head: [a.x + lx, a.y + eyeH(a) + .02, a.z + lz], body: { x0: bx - .26, x1: bx + .26, z0: bz - .26, z1: bz + .26, y0: a.y, y1: a.y + bodyTop(a) } };
+}
 function newActor(team, name, isMe) {
   const a = { team, name, isMe, hp: 100, dead: true, respawn: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0,
     crouch: false, ground: true, kills: 0, deaths: 0, dmg: 0, stats: { shots: 0, hits: 0, hs: 0 }, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
@@ -2560,8 +2578,8 @@ function traceActors(o, d, maxT, shooter) {
   let best = null;
   for (const a of G.actors) {
     if (a === shooter || a.dead || a.team === shooter.team) continue;
-    const [lx, lz] = leanVec(a);
-    const th = raySphere(o, d, [a.x + lx, a.y + eyeH(a) + .02, a.z + lz], HEAD_R);
+    const sh = a.prone ? null : hitShape(a), [lx, lz] = leanVec(a);
+    const th = raySphere(o, d, sh ? sh.head : [a.x + lx, a.y + eyeH(a) + .02, a.z + lz], HEAD_R);
     if (th !== null && th < maxT && (!best || th < best.t)) best = { t: th, a, head: true };
     if (a.prone) {   // lying flat: the body stretches out behind the head along the facing
       for (const b of PRONE_BODY) {
@@ -2570,8 +2588,7 @@ function traceActors(o, d, maxT, shooter) {
       }
       continue;
     }
-    const bx = a.x + lx * LEAN_SHIFT, bz = a.z + lz * LEAN_SHIFT;   // a leaning body has stepped out with its head
-    const tb = rayBox(o, d, { x0: bx - .26, x1: bx + .26, z0: bz - .26, z1: bz + .26, y0: a.y, y1: a.y + bodyTop(a) }, maxT);
+    const tb = rayBox(o, d, sh.body, maxT);
     if (tb && tb.t > 0 && (!best || tb.t < best.t - .05)) best = { t: tb.t, a, head: false };
   }
   if (best) best.p = [o[0] + d[0] * best.t, o[1] + d[1] * best.t, o[2] + d[2] * best.t];
@@ -2899,9 +2916,11 @@ function botFire(a, t) {
   const D = DIFF[settings.diff];
   const o = [a.x, a.y + eyeH(a), a.z];
   const head = Math.random() < (settings.diff === 'hard' ? .22 : .12);
-  const aimH = head ? eyeH(t) + .02 : t.prone ? .17 : 1.0 + Math.random() * .3;
-  const lk = aimH > 1.4 ? 1 : LEAN_SHIFT, [lx, lz] = leanVec(t), back = t.prone && !head ? .4 + Math.random() * .6 : 0;   // a prone body lies behind the head
-  let d = [t.x + lx * lk + Math.sin(t.yaw) * back + (t.vx || 0) * .05 - o[0], t.y + aimH - o[1], t.z + lz * lk + Math.cos(t.yaw) * back + (t.vz || 0) * .05 - o[2]];
+  // aim at the head or the upper body where they really are (a prone body lies behind the head)
+  let tp;
+  if (t.prone) { const [lx, lz] = leanVec(t), back = head ? 0 : .4 + Math.random() * .6; tp = [t.x + lx + Math.sin(t.yaw) * back, t.y + (head ? eyeH(t) + .02 : .17), t.z + lz + Math.cos(t.yaw) * back]; }
+  else { const sh = hitShape(t), b = sh.body; tp = head ? sh.head : [(b.x0 + b.x1) / 2, b.y0 + (b.y1 - b.y0) * (.65 + Math.random() * .25), (b.z0 + b.z1) / 2]; }
+  let d = [tp[0] + (t.vx || 0) * .05 - o[0], tp[1] - o[1], tp[2] + (t.vz || 0) * .05 - o[2]];
   const l = Math.hypot(...d); d = d.map(v => v / l);
   const moving = Math.hypot(a.vx, a.vz) > .5 ? 1.5 : 1, tgtMove = t.isMe ? Math.min(1.6, 1 + Math.hypot(t.vx, t.vz) / 8) : 1;
   const s = D.spread * moving * tgtMove * (a.crouch ? .8 : 1);
@@ -3020,6 +3039,11 @@ window.addEventListener('keydown', e => {
   if (DBG.on && dbgKey(e.code)) return;
   if (e.code === 'KeyB' && G.state === 'play') { pauseGame(); if (G.state === 'pause') showLoadout(true); return; }   // also while dead: applies at the next respawn
   if (!playing() || me.dead) return;
+  // Shift stands you up out of a crouch, like a jump does (if there's room overhead); a C still held down doesn't crouch you
+  // again until it's let go
+  if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && me.crouch && !me.prone && slideT <= 0 && !collidesAt(me.x, me.y, me.z, 1.75)) {
+    me.crouch = false; me.slid = false; crouchToggle = false; touchCrouch = false; if (keys.KeyC) slideHoldC = true;
+  }
   const sl = slots();
   if (e.code === 'Digit1') selectWeapon(sl[0]);
   if (e.code === 'Digit2') selectWeapon(sl[1]);
@@ -3191,7 +3215,7 @@ function bindSliders() {
 }
 // key guide panel: F1 in a match (the game keeps running), or the button in the menu / settings
 const KEY_GUIDE = [
-  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께)'], ...(CTRL_WALK ? [[['Ctrl'], '천천히 걷기 (발소리 작게)']] : []), [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
+  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (W와 함께) · 앉아 있으면 일어남'], ...(CTRL_WALK ? [[['Ctrl'], '천천히 걷기 (발소리 작게)']] : []), [['마우스'], '조준'], [['좌클릭'], '발사 (달리기 풀림)'],
   [['우클릭'], '정조준 · 스코프 (달리기 풀림)'], [['R'], '재장전'], [['1', '2', '3'], '주무기 · 보조무기 · 칼'], [['X'], '이전 무기'],
   [['휠'], '저격 스코프 배율 (3 · 4 · 5.5 · 8 · 12배)'], [['B'], '무기 고르기 (죽어 있을 때도, 다음 부활부터)'], [['Q', 'E'], '왼쪽 · 오른쪽 기울이기'], [['G'], '수류탄 (누르고 조준, 떼면 던짐)'],
   [['Space'], '점프'], [['C'], '앉기 · 달리면서 누르면 슬라이딩'], [['Z'], '엎드리기 (Z·Space: 일어서기, C: 앉기)'], [['Tab'], '점수판'], [['Enter'], '채팅'],
@@ -3697,7 +3721,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-14 #50)';
+const GAME_VERSION = '1.0 (10-14 #51)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
