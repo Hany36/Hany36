@@ -44,6 +44,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .hitm::before, .hitm::after { content: ""; position: absolute; left: 10px; top: -3px; width: 2px; height: 28px; background: #fff; transform: rotate(45deg); }
 .hitm::after { transform: rotate(-45deg); }
 .hitm.kill::before, .hitm.kill::after { background: var(--red); }
+/* the enemy under the crosshair; my kill with its streak */
+.aimname { position: fixed; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); padding: 1px 8px; border-radius: 5px; background: rgba(0,0,0,.4); color: #ffb0a8; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.killmsg { position: fixed; left: 50%; top: calc(50% + 70px); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; text-shadow: 0 1px 3px rgba(0,0,0,.9); white-space: nowrap; animation: kmIn .18s ease-out; }
+.killmsg b { font-size: 20px; color: #fff; letter-spacing: .02em; }
+.killmsg b::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; vertical-align: 2px; background: var(--red); transform: rotate(45deg); }
+.killmsg.player b { color: var(--amber); }
+.killmsg span { font-size: 14px; font-weight: 700; color: var(--red); letter-spacing: .06em; }
+.killmsg span:empty { display: none; }
+@keyframes kmIn { from { transform: translateX(-50%) scale(1.35); opacity: 0; } }
 .dmgdir { position: fixed; left: 50%; top: 50%; width: 220px; height: 220px; margin: -110px 0 0 -110px; border-radius: 50%; border-top: 6px solid rgba(239, 90, 79, .85); opacity: 0; }
 .scope { position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0 34vmin, rgba(0,0,0,.35) 34.2vmin, #000 35vmin); }
 .scope::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.9); }
@@ -240,6 +249,8 @@ body.ending .hud > :not(.score) { opacity: 0 !important; }
   <div class="hurt" id="hurt"></div>
   <div class="cross" id="cross"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
   <div class="hitm" id="hitm"></div>
+  <div class="aimname" id="aimName" hidden></div>
+  <div class="killmsg" id="killMsg" hidden><b id="kmName"></b><span id="kmSub"></span></div>
   <div class="dmgdir" id="dmgdir"></div>
   <div class="score"><div class="sb" id="sBlue">0</div><div class="st" id="sTime">5:00</div><div class="sr" id="sRed">0</div></div>
   <canvas class="radar" id="radar" width="248" height="248"></canvas>
@@ -824,7 +835,7 @@ function rayBox(o, d, b, maxT) {
     if (tb < t1) t1 = tb;
     if (t0 > t1) return null;
   }
-  return { t: t0, n };
+  return { t: t0, n, out: t1 };
 }
 function rayMap(o, d, maxT) {
   let best = null;
@@ -837,9 +848,28 @@ function rayMap(o, d, maxT) {
   for (const b of BOXES) {
     if (seeThrough(b)) continue;
     const h = rayBox(o, d, b, best ? best.t : maxT);
-    if (h && h.t > 0 && (!best || h.t < best.t)) best = h;
+    if (h && h.t > 0 && (!best || h.t < best.t)) { best = h; best.b = b; }
   }
   return best;
+}
+// Bullets go through thin wood (the wooden crates): weaker by WOOD_LOSS per meter of wood, and not through more than
+// WOOD_MAX meters of it in all (a crate straight on is 1.2-1.4 m; two in a row or a long diagonal stop the bullet).
+// Only bullets: sight lines, bots' eyes and grenades still find crates solid, so you can't see who is behind one.
+const WOOD_MAX = 1.6, WOOD_LOSS = .36;
+const woody = b => b && b.mat === 'crate';
+function rayBullet(o, d, maxT) {
+  const holes = [];   // { t: in, out, n: the face hit going in, b: the crate }
+  let from = 0, wood = 0;
+  for (let k = 0; k < 4; k++) {
+    const oo = [o[0] + d[0] * from, o[1] + d[1] * from, o[2] + d[2] * from];
+    const h = rayMap(oo, d, maxT - from);
+    if (!h) return { stop: null, holes };
+    const tIn = from + h.t, tOut = from + h.out;
+    if (!woody(h.b) || wood + (tOut - tIn) > WOOD_MAX) return { stop: { t: tIn, n: h.n }, holes };
+    wood += tOut - tIn; holes.push({ t: tIn, out: tOut, n: h.n, b: h.b });
+    from = tOut + 1e-3;
+  }
+  return { stop: { t: from, n: 2 }, holes };
 }
 function raySphere(o, d, c, r) {
   const ox = o[0] - c[0], oy = o[1] - c[1], oz = o[2] - c[2];
@@ -861,7 +891,7 @@ const WEAPONS = {
   pistol: { n: '권총', mag: 12, res: 48, rate: .16, auto: false, dmg: 34, head: 3, spread: .016, aimSpread: .005, kick: .02, reload: 1.5, range: 80, fov: 62, snd: .7, adsY: -.07, adsZ: -.3 },
   sniper: { mob: .92, n: '저격총', mag: 5, res: 20, rate: 1.25, auto: false, dmg: 110, head: 2, spread: .09, aimSpread: 0, kick: .05, reload: 2.8, range: 200, fov: 16, scope: true, snd: 1.6, adsY: -.1, adsZ: -.26 },
   smg:    { mob: 1.08, moveK: .5, n: '기관단총', mag: 32, res: 160, rate: .066, auto: true, dmg: 19, head: 3, spread: .016, aimSpread: .006, kick: .006, reload: 1.7, range: 70, fov: 60, snd: .75, adsY: -.073, adsZ: -.3 },
-  shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 23, pellets: 9, falloff: true, head: 1.6, spread: .033, aimSpread: .024, kick: .045, reload: 2.6, range: 40, fov: 56, snd: 1.4, adsY: -.07, adsZ: -.34 },
+  shotgun: { mob: 1, n: '산탄총', mag: 7, res: 28, rate: .85, auto: false, dmg: 23, pellets: 9, falloff: true, head: 1.6, spread: .033, aimSpread: .024, kick: .045, reload: 2.6, shell: .42, range: 40, fov: 56, snd: 1.4, adsY: -.07, adsZ: -.34 },
   revolver: { n: '리볼버', mag: 6, res: 30, rate: .42, auto: false, dmg: 52, head: 2.6, spread: .012, aimSpread: .003, kick: .055, reload: 2.2, range: 90, fov: 60, snd: 1.15, adsY: -.072, adsZ: -.3 },
   knife:  { n: '칼', melee: true, rate: .5, dmg: 100, range: 2.5 },
   // the grenade in hand (key 4 / G): no aiming or reloading like the knife; holding the trigger pulls the pin and draws the arm
@@ -1788,6 +1818,22 @@ function allyMarker() {
   s.scale.set(.22, .22, 1); s.position.y = 2.15; s.renderOrder = 5;
   return s;
 }
+// a teammate's name over the marker (seen through walls like the marker)
+function nameTag(name, team) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  s.scale.set(1, .25, 1); s.position.y = 2.42; s.renderOrder = 5; s.userData.canvas = c;
+  drawNameTag(s, name, team);
+  return s;
+}
+function drawNameTag(s, name, team) {
+  const c = s.userData.canvas, x = c.getContext('2d');
+  x.clearRect(0, 0, c.width, c.height);
+  x.font = '700 34px "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.lineJoin = 'round'; x.lineWidth = 7; x.strokeStyle = 'rgba(0,0,0,.8)'; x.strokeText(name, 128, 34, 248);
+  x.fillStyle = team === 'blue' ? '#b4cffc' : '#ffb7ae'; x.fillText(name, 128, 34, 248);
+  s.material.map.needsUpdate = true;
+}
 // a hand grenade, k: size factor (1 = meters). userData.ring: the pin ring (pulled before a throw)
 function nadeModel(k = 1) {
   const g = new THREE.Group(), body = new THREE.Mesh(new THREE.SphereGeometry(.032 * k, 14, 10), std({ color: 0x4a5634, roughness: .6 }));
@@ -2368,7 +2414,7 @@ function newActor(team, name, isMe) {
     crouch: false, ground: true, kills: 0, deaths: 0, dmg: 0, stats: { shots: 0, hits: 0, hs: 0 }, protect: 0, lastHitBy: null, spotted: 0, walkT: 0 };
   if (!isMe) {
     a.mesh = makeSoldier(team); scene.add(a.mesh);
-    if (team === (G.myTeam || 'blue')) a.mesh.add(allyMarker());
+    if (team === (G.myTeam || 'blue')) { a.mesh.add(allyMarker()); a.mesh.add(a.tag = nameTag(name, team)); }
     a.ai = { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, strafe: 0, strafeT: 0, look: 0, lastSeen: null, think: Math.random() * .2, deathT: 0, stuckT: 0, stuckN: 0, unstickT: 0, blockT: 0 };
   }
   G.actors.push(a);
@@ -2389,7 +2435,7 @@ function spawnActor(a) {
     if (G.actors.some(o => o !== a && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.2)) continue;
     a.x = x; a.z = z; break;
   }
-  a.y = 0; a.vx = a.vy = a.vz = 0; a.hp = 100; a.dead = false; a.protect = 2; a.crouch = false; a.prone = false; a.air = false;
+  a.y = 0; a.vx = a.vy = a.vz = 0; a.hp = 100; a.dead = false; a.protect = 2; freshBody(a);
   a.yaw = side < 0 ? -Math.PI / 2 : Math.PI / 2; a.pitch = 0; a.lastHitBy = null;
   if (a.isMe) resetLoadout();
   else {
@@ -2399,6 +2445,12 @@ function spawnActor(a) {
     if (a.ai) Object.assign(a.ai, { path: [], goal: null, repath: 0, target: null, seeT: 0, burst: 0, cool: 0, lastSeen: null, chase: null, stuckT: 0, stuckN: 0, unstickT: 0, blockT: 0 });
     a.hp = a.team === 'red' ? DIFF[settings.diff].hp : 100;
   }
+}
+// a body just respawned: standing up straight (someone who died lying down or crouched doesn't come back that way),
+// not leaning, sliding or throwing; my own view starts at standing eye height
+function freshBody(a) {
+  Object.assign(a, { crouch: false, prone: false, air: false, sprint: false, sneak: false, slid: false, sliding: false, lean: 0, leanOff: 0, ground: true, throwS: 0 });
+  if (a.isMe) { a.eyeS = eyeH(a); touchCrouch = false; }
 }
 function damage(victim, amount, attacker, weapon, head, from) {
   if (victim.dead || victim.protect > 0) return false;
@@ -2424,6 +2476,7 @@ function damage(victim, amount, attacker, weapon, head, from) {
 // =============== player ===============
 let me = null, aiming = false, weapon = 'rifle', prevWeapon = 'pistol';
 const ammo = {};
+let reloadDur = 1, reloadSince = 0, shotQueued = false;   // the current reload step's length, time since the reload began, a pump-gun shot waiting
 let fireCd = 0, reloadT = 0, switchT = 0, switchDur = .35, spreadBoost = 0, recoilP = 0, nades = 2, bob = 0, triggerHeld = false, firedThisPress = false;
 function setAim(v) {
   const w = WEAPONS[weapon];
@@ -2436,13 +2489,13 @@ function resetLoadout() {
   if (!WEAPONS[settings.primary]) settings.primary = 'rifle';
   if (!WEAPONS[settings.secondary]) settings.secondary = 'pistol';
   loadoutPrimary = settings.primary; loadoutSecondary = settings.secondary; loadoutEquip = settings.equip; leanToggle = 0; touchLean = 0;
-  nades = loadoutEquip === 'armor' ? 0 : 2; reloadT = 0; fireCd = 0; prevWeapon = loadoutSecondary; crouchToggle = false; proneT = 0; spaceBlock = false; selectWeapon(loadoutPrimary, true);
+  nades = loadoutEquip === 'armor' ? 0 : 2; reloadT = 0; shotQueued = false; fireCd = 0; prevWeapon = loadoutSecondary; crouchToggle = false; proneT = 0; spaceBlock = false; selectWeapon(loadoutPrimary, true);
 }
 function selectWeapon(k, instant) {
   if (k === 'nade' && nades <= 0) return;
   if (k === weapon && !instant) return;
   if (k !== weapon) prevWeapon = weapon;
-  weapon = k; reloadT = 0; switchDur = k === 'nade' ? NADE.draw : .35; switchT = instant ? 0 : switchDur; setAim(false);
+  weapon = k; reloadT = 0; shotQueued = false; switchDur = k === 'nade' ? NADE.draw : .35; switchT = instant ? 0 : switchDur; setAim(false);
   nadePh = 0; nadeT = 0; cancelNadeAim();   // switching away before the release keeps the grenade
   for (const m in vm.models) vm.models[m].visible = m === k;
 }
@@ -2471,7 +2524,7 @@ const keys = {};
 const joy = { x: 0, y: 0 };
 let jumpHeld = false, touchCrouch = false, crouchToggle = false;
 // Ctrl: walk slowly and quietly. Only in the PC version: in a browser, Ctrl with W would close the tab
-const CTRL_WALK = /Electron\//.test(navigator.userAgent);
+const IS_EXE = /Electron\//.test(navigator.userAgent), CTRL_WALK = IS_EXE;
 // Lean: me.lean eases toward -1 (left), 0 or 1 (right); leanOff is the sideways eye offset in meters after wall checks.
 let leanToggle = 0, touchLean = 0;
 // LEAN_SHIFT: the share of the lean done by the whole body stepping sideways (the rest is the upper body tilting), so the
@@ -2574,18 +2627,27 @@ function updatePlayer(dt) {
   spreadBoost = Math.max(0, spreadBoost - dt * .09);
   recoilP = Math.max(0, recoilP - dt * .25);
   const w = WEAPONS[weapon];
-  if (reloadT > 0) { reloadT -= dt; if (reloadT <= 0) finishReload(); }
+  if (reloadT > 0) { reloadT -= dt; reloadSince += dt; if (reloadT <= 0) finishReload(); }
   if (w.nade) { nadeTick(dt); me.throwS = throwState(); return; }
   me.throwS = 0;
-  if (triggerHeld && switchT <= 0 && reloadT <= 0 && fireCd <= 0 && proneT <= 0 && (w.auto || !firedThisPress)) { firedThisPress = true; shoot(); }
+  // the pump shotgun: a click while it loads shells stops the loading (if a shell is in) and fires after a short pump
+  if (w.shell && reloadT > 0 && triggerHeld && !firedThisPress && ammo[weapon].mag > 0) { reloadT = 0; shotQueued = true; fireCd = Math.max(fireCd, SHELL_CANCEL); }
+  if ((triggerHeld || shotQueued) && switchT <= 0 && reloadT <= 0 && fireCd <= 0 && proneT <= 0 && (w.auto || !firedThisPress || shotQueued)) { firedThisPress = true; shotQueued = false; shoot(); }
 }
 function startReload() {
   const w = WEAPONS[weapon], a = ammo[weapon];
   if (w.melee || reloadT > 0 || a.mag >= w.mag || a.res <= 0) return;
-  reloadT = w.reload; setAim(false);
+  reloadT = reloadDur = w.shell ? SHELL_OPEN + w.shell : w.reload; reloadSince = 0; setAim(false);
 }
+// SHELL_OPEN: getting ready to load the first shell; SHELL_CANCEL: the pump between stopping a reload and the shot
+const SHELL_OPEN = .25, SHELL_CANCEL = .22;
 function finishReload() {
   const w = WEAPONS[weapon], a = ammo[weapon];
+  if (w.shell) {   // one shell in; keep loading until it's full or the shells run out
+    if (a.mag < w.mag && a.res > 0) { a.mag++; a.res--; }
+    if (a.mag < w.mag && a.res > 0) reloadT = reloadDur = w.shell;
+    return;
+  }
   const n = Math.min(w.mag - a.mag, a.res); a.mag += n; a.res -= n;
 }
 function aimDir(spread) {
@@ -2665,9 +2727,20 @@ function traceActors(o, d, maxT, shooter) {
   return best;
 }
 function fireRay(shooter, o, d, w, dmgMul = 1) {
-  const mh = rayMap(o, d, w.range);
+  const path = rayBullet(o, d, w.range), mh = path.stop;
   const maxT = mh ? mh.t : w.range;
   const ah = traceActors(o, d, maxT, shooter);
+  // the wood passed before reaching what was hit: splinters where the bullet went in and came out, and less damage
+  for (const hole of path.holes) {
+    if (ah && hole.t >= ah.t) break;
+    const pin = [o[0] + d[0] * hole.t, o[1] + d[1] * hole.t, o[2] + d[2] * hole.t];
+    decal(pin, hole.n); burst(pin, [.55, .42, .28], 5, 2.4, .35);
+    const pout = [o[0] + d[0] * hole.out, o[1] + d[1] * hole.out, o[2] + d[2] * hole.out];
+    const exit = rayBox(pout.map((v, i) => v + d[i] * .05), d.map(v => -v), hole.b, 1);   // the face it came out of
+    if (exit) decal(pout, exit.n);
+    burst(pout, [.55, .42, .28], 4, 2.4, .3);
+    if (!ah || hole.out <= ah.t) dmgMul *= Math.max(.2, 1 - WOOD_LOSS * (hole.out - hole.t));
+  }
   const end = ah ? ah.p : [o[0] + d[0] * maxT, o[1] + d[1] * maxT, o[2] + d[2] * maxT];
   const gunPos = shooter.isMe
     ? [o[0] - Math.sin(me.yaw) * .5 + Math.cos(me.yaw) * .14, o[1] - .12, o[2] - Math.cos(me.yaw) * .5 - Math.sin(me.yaw) * .14]
@@ -3030,6 +3103,7 @@ const $ = id => document.getElementById(id);
 const feed = [];
 function pushFeed(killer, victim, weaponName, head) {
   recKill(killer, victim, weaponName, head);
+  if (killer && killer.isMe && victim !== killer && G.state === 'play') killBanner(victim, head);
   if (NET.role === 'host') netSend({ t: 'feed', k: G.actors.indexOf(killer), v: G.actors.indexOf(victim), w: weaponName, h: !!head });
   const cls = x => (x.team === 'blue' ? 'b' : 'r');
   feed.unshift({ html: killer === victim ? `<span class="${cls(victim)}">${victim.name}</span> <span class="w">자폭</span>`
@@ -3040,6 +3114,17 @@ function pushFeed(killer, victim, weaponName, head) {
 }
 function renderFeed() { $('feed').innerHTML = feed.map(f => `<div class="${f.me ? 'me' : ''}">${f.html}</div>`).join(''); }
 let hitT = 0, hurtT = 0, hurtAng = 0;
+// my kill under the crosshair: "<name> 처치", and the streak when kills come within 4 seconds of each other
+// (the other player's name in amber online)
+let killMsgT = 0;
+const myStreak = { n: 0, t: -99 };
+function killBanner(victim, head) {
+  myStreak.n = G.time - myStreak.t <= 4 ? myStreak.n + 1 : 1; myStreak.t = G.time;
+  $('kmName').textContent = `${victim.name} 처치`;
+  $('kmSub').textContent = myStreak.n >= 2 ? (STREAK_NAMES[myStreak.n] || myStreak.n + '연속 킬') : head ? '헤드샷' : '';
+  const el = $('killMsg'); el.classList.toggle('player', !!victim.human);
+  el.hidden = false; el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; killMsgT = 2.2;
+}
 function hitMarker(kill) { hitT = .25; $('hitm').classList.toggle('kill', !!kill); }
 function hurtFlash(from) { hurtT = .6; if (from && from.x !== undefined) hurtAng = Math.atan2(-(from.x - me.x), -(from.z - me.z)) - me.yaw; }
 function showCenter(big, small) { $('cmBig').textContent = big; $('cmSmall').textContent = small; $('centerMsg').hidden = false; }
@@ -3087,6 +3172,12 @@ function hud(dt) {
   cr[0].style.top = `${-gap - 8}px`; cr[1].style.top = `${gap}px`; cr[2].style.left = `${-gap - 8}px`; cr[3].style.left = `${gap}px`;
   for (let i = 0; i < 4; i++) cr[i].style.visibility = lines;
   hitT = Math.max(0, hitT - dt); $('hitm').style.opacity = hitT > 0 ? 1 : 0;
+  if (killMsgT > 0) { killMsgT -= dt; $('killMsg').style.opacity = Math.min(1, killMsgT / .5); if (killMsgT <= 0) $('killMsg').hidden = true; }
+  // the enemy under the crosshair (not through walls or crates); teammates carry their names over their heads
+  let aimed = null;
+  if (!me.dead && !scopedIn()) { const o = eyePos(me), d = aimDir(0), wall = rayMap(o, d, 150), h = traceActors(o, d, wall ? wall.t : 150, me); aimed = h && h.a; }
+  const an = $('aimName'); an.hidden = !aimed; if (aimed && an.textContent !== aimed.name) an.textContent = aimed.name;
+  for (const a of G.actors) if (a.tag) a.tag.visible = !a.dead;
   hurtT = Math.max(0, hurtT - dt);
   $('hurt').style.opacity = Math.max(hurtT, me.hp < 30 && !me.dead ? .35 : 0);
   $('dmgdir').style.opacity = hurtT; $('dmgdir').style.transform = `rotate(${-hurtAng}rad)`;
@@ -3838,7 +3929,7 @@ window.addEventListener('keydown', e => {
   pickLoadout(...all[n - 1]);
 });
 // shown on the menu so it is easy to tell whether the browser has the newest upload
-const GAME_VERSION = '1.0 (10-14 #53)';
+const GAME_VERSION = '1.0 (10-27 #54)';
 function showMenu() {
   G.state = 'menu'; loadoutOpen = false; clearEnding(); $('card').className = 'card';
   $('hud').hidden = true; $('touch').hidden = true;
@@ -3846,6 +3937,7 @@ function showMenu() {
     <h1>Jammini_FPS_1.0<small>TEAM DEATHMATCH 5 VS 5</small></h1>
     <button class="btn" type="button" data-act="start">전투 시작 (봇전)</button>
     <button class="btn ghost" type="button" data-act="online">친구와 온라인으로 하기</button>
+    ${IS_EXE ? '<button class="btn ghost" type="button" data-act="quit">게임 종료</button>' : ''}
     <div class="grps">
       ${grpHtml('map', '맵 설정', mapSummary(), mapSettingsHtml())}
       ${grpHtml('game', '게임 설정', '조작 · 감도 · 소리 · 화면', settingsHtml())}
@@ -3861,8 +3953,19 @@ $('overlay').addEventListener('click', e => {
   if (s) {
     settings[s.dataset.set] = s.dataset.val; saveSettings();
     s.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === s)));
-    if (s.dataset.set === 'map' && s.dataset.val !== MAP_ID) { s.closest('.card').style.opacity = .5; location.hash = `map=${s.dataset.val}`; location.reload(); return; }
+    if (s.dataset.set === 'map' && s.dataset.val !== MAP_ID) {
+      s.closest('.card').style.opacity = .5;
+      // in the lobby the room stays open: the friend is told to load the new map and come back, and this page reopens
+      // the room under the same code after loading it
+      if (NET.role === 'host' && NET.lobby) {
+        netSend({ t: 'lobby', name: netNick(), map: s.dataset.val, goal: +settings.goal, minutes: +settings.minutes, diff: settings.diff, mode: NET.mode, wait: 1 });
+        location.hash = `map=${s.dataset.val}&host=${NET.code}&nm=${NET.mode}${NET_TEST ? '&nettest' : ''}`;
+        setTimeout(() => location.reload(), 250); return;
+      }
+      location.hash = `map=${s.dataset.val}`; location.reload(); return;
+    }
     if (s.dataset.set === 'goal' || s.dataset.set === 'minutes') { settings[s.dataset.set] = +s.dataset.val; saveSettings(); }
+    if (NET.role === 'host' && NET.lobby && ['goal', 'minutes', 'diff'].includes(s.dataset.set)) { netSendLobby(); showLobby(); return; }
     { const sm = $('grpSum-map'); if (sm) sm.textContent = mapSummary(); }
     if (s.dataset.set === 'quality') { autoQ.level = 1; autoQ.wentDown = false; autoQ.slow = 0; applyQuality(); }
     if (s.dataset.set === 'aimMode') setAim(false);
@@ -3882,6 +3985,7 @@ $('overlay').addEventListener('click', e => {
   if (b.dataset.act === 'resume') resumeGame();
   if (b.dataset.act === 'menu') { if (document.pointerLockElement) document.exitPointerLock(); netLeave(); showMenu(); }
   if (b.dataset.act === 'online') showOnline();
+  if (b.dataset.act === 'quit') { netLeave(); window.close(); }   // the PC version: closing its window ends the game
   if (b.dataset.act === 'lobby') { G.state = 'menu'; clearEnding(); $('hud').hidden = true; $('touch').hidden = true; showLobby(); }
   if (b.dataset.act === 'host') netHost();
   if (b.dataset.act === 'join') netJoin(($('joinCode').value || '').trim());
@@ -4022,17 +4126,22 @@ function showLobby() {
     <div class="netcode">${NET.code || '····'}<small>방 코드</small></div>
     ${host && NET.code ? `<button class="btn ghost" type="button" data-act="invite">초대 링크 복사 (누르면 바로 참가)</button>` : ''}
     <p class="keep">${host ? (joined ? `<b>${esc(NET.peerName)}</b> 님이 들어왔어요.` : '친구에게 이 코드를 알려 주세요. 기다리는 중…') : `방장 <b>${esc(NET.peerName)}</b> 님이 시작하기를 기다리는 중…`}</p>
-    <p class="keep">맵 ${mapName} · 목표 ${goal}킬 · ${mins}분 · 5 대 5 (빈자리는 봇)</p>
+    <p class="keep">맵 ${mapName} · 목표 ${goal}킬 · ${mins}분 · 5 대 5 (빈자리는 봇)${host ? '' : ' · 맵과 규칙은 방장이 정해요'}</p>
     <span class="lab" style="font-size:12px;font-weight:700;color:var(--muted)">모드${host ? '' : ' (방장이 정해요)'}</span>
     <div class="seg" style="--n:2" role="group">
       <button type="button" ${host ? 'data-act="netmode" data-val="coop"' : 'disabled'} aria-pressed="${NET.mode === 'coop'}">협동 · 같은 팀</button>
       <button type="button" ${host ? 'data-act="netmode" data-val="versus"' : 'disabled'} aria-pressed="${NET.mode === 'versus'}">대결 · 상대 팀</button>
     </div>
     <p class="keep" id="netStatus">${NET.state || ''}</p>
+    <div class="grps">
+      ${host ? grpHtml('map', '맵 설정', mapSummary(), mapSettingsHtml() + (joined ? '<p class="keep" style="margin:6px 0 0;font-size:12px">맵을 바꾸면 두 사람 모두 새 맵을 불러오고 같은 방으로 다시 연결돼요.</p>' : '')) : ''}
+      ${grpHtml('game', '게임 설정', '조작 · 감도 · 소리 · 화면', settingsHtml())}
+    </div>
     <div class="lchat"><div class="log" id="lobbyLog">${chatLines(30)}</div><input id="lobbyChatIn" maxlength="100" placeholder="채팅 · Enter로 보내기" autocomplete="off"></div>
     <button class="btn ghost" type="button" data-act="start">무기 선택</button>
     ${host ? `<button class="btn" type="button" data-act="netstart" ${joined ? '' : 'disabled'}>시작</button>` : ''}
     <button class="btn ghost" type="button" data-act="menu">나가기</button>`;
+  bindSliders();
   $('overlay').hidden = false;
   const li = $('lobbyChatIn'); li.value = keepText; if (keepFocus) li.focus();
   const ll = $('lobbyLog'); ll.scrollTop = ll.scrollHeight;
@@ -4088,14 +4197,19 @@ document.addEventListener('keydown', e => {
 setInterval(() => { if (!chatOpen) renderChat(); }, 1000);
 // ---- connecting
 const NET_CODE_CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-function netHost() {
+function netHost(code, tries = 0) {
   netLeave(); NET.role = 'host'; NET.mode = NET.mode || 'coop';
-  NET.code = Array.from({ length: 4 }, () => NET_CODE_CH[Math.floor(Math.random() * NET_CODE_CH.length)]).join('');
-  netStatus('방을 만드는 중…');
+  NET.code = code || Array.from({ length: 4 }, () => NET_CODE_CH[Math.floor(Math.random() * NET_CODE_CH.length)]).join('');
+  netStatus(code ? '방을 다시 여는 중…' : '방을 만드는 중…');
   netNewPeer(NET_PREFIX + NET.code.toLowerCase()).then(peer => {
     NET.peer = peer;
     peer.on('open', () => { if (NET.role === 'host') { NET.state = ''; showLobby(); } });
-    peer.on('error', e => { if (NET.role !== 'host') return; const m = NET_ERR[e.type] || '연결 오류: ' + e.type; if (NET.lobby) netStatus(m, true); else { netLeave(); showOnline(m); } });
+    peer.on('error', e => {
+      if (NET.role !== 'host') return;
+      // the old page's room under this code can take a moment to close on the broker
+      if (e.type === 'unavailable-id' && code && tries > 0) { setTimeout(() => { if (NET.role === 'host' && NET.code === code) netHost(code, tries - 1); }, 1500); return; }
+      const m = NET_ERR[e.type] || '연결 오류: ' + e.type; if (NET.lobby) netStatus(m, true); else { netLeave(); showOnline(m); }
+    });
     peer.on('connection', c => {
       // a new connection replaces the old one (the friend reloaded into the host's map, or reconnected)
       const old = NET.conn; NET.conn = c; netWire(c);
@@ -4103,21 +4217,29 @@ function netHost() {
     });
   }, () => { netLeave(); showOnline(NET_ERR.lib); });
 }
-function netJoin(code) {
+function netJoin(code, tries = 0) {
   code = (code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length !== 4) { netStatus('4글자 코드를 입력해 주세요.', true); return; }
   netLeave(); NET.role = 'client'; NET.code = code;
-  netStatus('방을 찾는 중…');
+  const attempt = NET.attempt = (NET.attempt || 0) + 1;
+  // only the first failure of an attempt counts; while the host is reopening its room (map change), try again
+  const fail = m => {
+    if (NET.attempt !== attempt || NET.role !== 'client') return;
+    NET.attempt++;
+    if (tries > 0 && m !== NET_ERR.lib) { netStatus('방장이 새 맵을 불러오는 중이에요. 다시 연결하는 중…'); setTimeout(() => { if (NET.role === 'client' && NET.code === code) netJoin(code, tries - 1); }, 1500); return; }
+    netLeave(); showOnline(m);
+  };
+  netStatus(tries ? '방장을 기다리는 중…' : '방을 찾는 중…');
   netNewPeer().then(peer => {
     NET.peer = peer;
-    peer.on('error', e => { if (NET.role !== 'client') return; const m = NET_ERR[e.type] || '연결 오류: ' + e.type; netLeave(); showOnline(m); });
+    peer.on('error', e => fail(NET_ERR[e.type] || '연결 오류: ' + e.type));
     peer.on('open', () => {
       const c = peer.connect(NET_PREFIX + code.toLowerCase(), { reliable: true, serialization: 'json' });
       NET.conn = c; netWire(c);
-      c.on('error', () => { if (NET.role === 'client' && !c.open) { netLeave(); showOnline(NET_ERR['peer-unavailable']); } });
-      setTimeout(() => { if (NET.role === 'client' && NET.conn === c && !c.open) { netLeave(); showOnline(NET_ERR.timeout); } }, 15000);
+      c.on('error', () => { if (!c.open) fail(NET_ERR['peer-unavailable']); });
+      setTimeout(() => { if (NET.conn === c && !c.open) fail(NET_ERR.timeout); }, tries ? 6000 : 15000);
     });
-  }, () => { netLeave(); showOnline(NET_ERR.lib); });
+  }, () => fail(NET_ERR.lib));
 }
 function netWire(c) {
   NET.off = undefined; NET.ping = 0; NET.relay = undefined;
@@ -4132,7 +4254,8 @@ function netLost() {
     const fr = G.actors[NET.fr];
     NET.conn = null; NET.peerName = '';
     if (fr && fr.remote && (G.state === 'play' || G.state === 'count' || G.state === 'pause' || G.state === 'ending')) {
-      fr.remote = false; fr.name += ' (봇)';                                // a bot takes over the friend's place
+      fr.remote = false; fr.human = false; fr.name += ' (봇)';             // a bot takes over the friend's place
+      if (fr.tag) drawNameTag(fr.tag, fr.name, fr.team);
       feed.unshift({ html: '<span class="w">친구가 나가서 봇이 대신해요</span>', me: false, t: 6 }); renderFeed();
     }
     NET.state = '친구와 연결이 끊어졌어요.';
@@ -4155,7 +4278,7 @@ function netOnMessage(m) {
   if (m.t === 'pg') { netSend({ t: 'po', ts: m.ts }); return; }
   if (m.t === 'po') { if (Number.isFinite(m.ts)) { const rtt = (netNow() - m.ts) * 1000; NET.ping = NET.ping ? NET.ping + (rtt - NET.ping) * .3 : rtt; } return; }
   if (NET.role === 'host') {
-    if (m.t === 'hello') { NET.peerName = String(m.name || '친구').slice(0, 10); NET.state = ''; netSendLobby(); if (NET.lobby) showLobby(); }
+    if (m.t === 'hello') { NET.peerName = cleanName(m.name, '친구'); NET.state = ''; netSendLobby(); if (NET.lobby) showLobby(); }
     else if (m.t === 'st') { const fr = G.actors[NET.fr]; if (fr && fr.remote) { fr.net = m; if (!fr.dead) netBuf(fr, m.ts, m.x, m.y, m.z, m.yaw); } }
     else if (m.t === 'hit') {
       const fr = G.actors[NET.fr], v = G.actors[m.i];
@@ -4175,13 +4298,13 @@ function netOnMessage(m) {
   // client
   if (m.t === 'full') { netLeave(); showOnline('그 방은 이미 꽉 찼어요.'); }
   else if (m.t === 'lobby') {
-    NET.cfg = m; NET.peerName = String(m.name || '방장').slice(0, 10); NET.mode = m.mode === 'versus' ? 'versus' : 'coop';
+    NET.cfg = m; NET.peerName = cleanName(m.name, '방장'); NET.mode = m.mode === 'versus' ? 'versus' : 'coop';
     // same map as the host, or reload into it and join again
     const needMap = MAPS[m.map] && m.map !== MAP_ID;
     if (needMap) {
       netStatus('방장의 맵으로 바꾸는 중…');
       if (NET.conn) { NET.conn._replaced = true; try { NET.conn.close(); } catch (e) { /* gone */ } }
-      location.hash = `map=${m.map}&join=${NET.code}${NET_TEST ? '&nettest' : ''}`;
+      location.hash = `map=${m.map}&join=${NET.code}${m.wait ? '&wait' : ''}${NET_TEST ? '&nettest' : ''}`;
       location.reload(); return;
     }
     NET.state = ''; if (NET.lobby || $('netStatus')) showLobby();
@@ -4189,8 +4312,8 @@ function netOnMessage(m) {
   else if (m.t === 'sn') netApplySnap(m);
   else if (m.t === 'sp') {
     if (!me) return;
-    Object.assign(me, { x: m.x, z: m.z, y: 0, yaw: m.yaw, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, dead: false, protect: 2, crouch: false });
-    resetLoadout(); $('centerMsg').hidden = true;
+    Object.assign(me, { x: m.x, z: m.z, y: 0, yaw: m.yaw, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, dead: false, protect: 2 });
+    freshBody(me); resetLoadout(); $('centerMsg').hidden = true;
   } else if (m.t === 'hurt') { if (me && !me.dead) hurtFlash({ x: m.x, z: m.z }); }
   else if (m.t === 'feed') { const k = G.actors[m.k], v = G.actors[m.v]; if (k && v) pushFeedLocal(k, v, m.w, m.h); }
   else if (m.t === 'boom') { if (Array.isArray(m.p)) { recBoom(m.p); explosionFx(m.p); lastBoomAt = performance.now(); if (!playSnd('grenade_explosion', NADE_SND(m.p))) sfx('boom', 1 / (1 + Math.hypot(me.x - m.p[0], me.z - m.p[2]) / 12)); } }
@@ -4199,6 +4322,8 @@ function netOnMessage(m) {
 }
 function pushFeedLocal(killer, victim, w, head) {
   recKill(killer, victim, w, head);
+  // the host decides kills: when its report says I made one, the hit marker turns red and the kill shows
+  if (killer.isMe && victim !== killer && G.state === 'play') { hitMarker(true); killBanner(victim, head); }
   const cls = x => (x.team === 'blue' ? 'b' : 'r'), esc = t => String(t).replace(/[<>"&]/g, '');
   feed.unshift({ html: killer === victim ? `<span class="${cls(victim)}">${esc(victim.name)}</span> <span class="w">자폭</span>`
     : `<span class="${cls(killer)}">${esc(killer.name)}</span> <span class="w">${esc(w)}</span>${head ? '<span class="hs">헤드샷</span> ' : ''}<span class="${cls(victim)}">${esc(victim.name)}</span>`,
@@ -4224,10 +4349,11 @@ function netBegin(m) {
   for (const p of G.nades) scene.remove(p.mesh);
   clearPickups();
   G.actors = []; G.nades = []; G.score = { blue: 0, red: 0 }; G.time = 0; feed.length = 0; renderFeed();
-  const names = [...[String(m.names && m.names[0] || '방장').slice(0, 10)], ...NAMES.blue, ...NAMES.red];
-  names[NET.fr] = String(m.names && m.names[1] || '친구').slice(0, 10);
+  const names = [cleanName(m.names && m.names[0], '방장'), ...NAMES.blue, ...NAMES.red];
+  names[NET.fr] = cleanName(m.names && m.names[1], '친구');
   for (let i = 0; i < 10; i++) {
     const a = newActor(i < 5 ? 'blue' : 'red', i === myIndex ? '나' : names[i], i === myIndex);
+    a.human = i === 0 || i === NET.fr;
     if (i === myIndex) me = a;
     if (!host && i !== myIndex) a.remote = true;                         // the friend mirrors everyone else
     if (host && i === NET.fr) a.remote = true;                           // the host mirrors the friend
@@ -4254,6 +4380,7 @@ function netRemote(a, dt) {
 }
 function netShot(shooter, end) { if (NET.shots.length < 24) NET.shots.push([G.actors.indexOf(shooter), +end[0].toFixed(2), +end[1].toFixed(2), +end[2].toFixed(2)]); }
 const R2 = v => Math.round(v * 100) / 100;
+const cleanName = (t, dflt) => String(t || '').replace(/[<>"&]/g, '').trim().slice(0, 10) || dflt;
 function netHostTick(dt) {
   NET.sendT -= dt;
   if (NET.sendT > 0 || !(NET.conn && NET.conn.open)) return;
@@ -4381,18 +4508,39 @@ function netCopyInvite() {
 }
 // opened from a link with #join=CODE (after switching to the host's map): join straight away
 function netAutoJoin() {
-  const m = /join=([A-Za-z0-9]{4})/.exec(location.hash);
+  const m = /join=([A-Za-z0-9]{4})/.exec(location.hash), wait = /[#&]wait\b/.test(location.hash);
   if (!m) return;
-  history.replaceState(null, '', location.pathname + location.search + location.hash.replace(/&?join=[A-Za-z0-9]{4}/, ''));
-  showOnline(); netJoin(m[1]);
+  history.replaceState(null, '', location.pathname + location.search + location.hash.replace(/&?join=[A-Za-z0-9]{4}/, '').replace(/&wait\b/, ''));
+  showOnline(); netJoin(m[1], wait ? 12 : 0);
+}
+// the host changed the map in the lobby: this page was reloaded into it, the room reopens under the same code
+function netAutoHost() {
+  const m = /host=([A-Za-z0-9]{4})/.exec(location.hash), mode = /nm=(coop|versus)/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search + location.hash.replace(/&?host=[A-Za-z0-9]{4}/, '').replace(/&?nm=(coop|versus)/, ''));
+  if (mode) NET.mode = mode[1];
+  showOnline(); netHost(m[1].toUpperCase(), 10);
 }
 
 // =============== main loop ===============
-let last = 0;
+let last = 0, lastDraw = 0;
 function frame(ts) {
-  const rawDt = (ts - (last || ts)) / 1000;
-  last = ts;
-  autoQuality(rawDt);
+  lastDraw = performance.now();
+  advance(ts, true);
+  requestAnimationFrame(frame);
+}
+// Online the match has to keep going while this window is hidden (alt-tab, minimized): the browser stops drawing frames
+// then, so a worker's clock steps the game (the host's bots, respawns and snapshots, the friend's own updates) until
+// frames come back. Nothing is drawn meanwhile.
+(() => {
+  let w;
+  try { w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 50)'], { type: 'text/javascript' }))); } catch (e) { return; }
+  w.onmessage = () => { const now = performance.now(); if (NET.role !== 'off' && G.state !== 'menu' && now - lastDraw > 250) advance(now, false); };
+})();
+function advance(ts, draw) {
+  const rawDt = Math.max(0, (ts - (last || ts)) / 1000);   // a frame's time stamp can be a little older than the worker's last step
+  last = Math.max(last, ts);
+  if (draw) autoQuality(rawDt);
   if (G.state !== 'menu') infoTick(rawDt);
   // slow frames are split into short steps so the game keeps its real speed (beyond 0.1s it slows down instead of jumping)
   const full = Math.min(.1, rawDt), n = Math.max(1, Math.ceil(full / .034)), dt = full / n;
@@ -4408,19 +4556,23 @@ function frame(ts) {
     if (G.endT >= END_TIME) { if (!startReplay()) showResults(); }
   } else if (G.state === 'replay') updateReplay(full);
   else if (G.state === 'over') { for (const a of G.actors) if (!a.isMe && !a.remote) updateBot(a, 0); }
+  if (!draw) return;
   render(full);
   updateListener();
-  requestAnimationFrame(frame);
 }
 function step(dt) {
   if (NET.role === 'client') { netClientStep(dt); return; }
   G.time += dt;
   if (G.time >= MATCH_TIME && G.state === 'play') { G.time = MATCH_TIME; endMatch(); }
+  // online the match goes on while someone has the menu or the weapon choice (B) open: respawns keep coming, and the
+  // host's spawn protection keeps running out (before, the host's menu held every dead player down until it closed)
+  const live = G.state === 'play' || (NET.role !== 'off' && G.state === 'pause' && G.resume === 'play');
+  if (G.state === 'pause' && live && !me.dead) me.protect = Math.max(0, me.protect - dt);
   for (const a of G.actors) {
     a.spotted = Math.max(0, a.spotted - dt);
     if (a.dead) {
       a.respawn -= dt;
-      if (a.respawn <= 0 && G.state !== 'play') a.respawn = 0;
+      if (a.respawn <= 0 && !live) a.respawn = 0;
       else if (a.respawn <= 0) { spawnActor(a); if (a.isMe) $('centerMsg').hidden = true; }
       else if (a.isMe) showCenter('사망', `${me.lastHitBy && me.lastHitBy !== me ? me.lastHitBy.name + '에게 당했어요 · ' : ''}${Math.ceil(a.respawn)}초 후 부활`);
     }
@@ -4461,7 +4613,8 @@ function render(dt) {
     vm.boltT = Math.max(0, (vm.boltT || 0) - dt);
     vm.flashT = (vm.flashT || 0) - dt; if (vm.flashT <= 0) vm.flash.visible = false;
     const ads = aiming && !w.melee;   // a scoped rifle also comes up to the eye before the scope view
-    const sw = switchT > 0 ? switchT / switchDur : 0, rl = reloadT > 0 ? Math.sin(Math.min(1, 1 - reloadT / w.reload) * Math.PI) : 0;
+    const sw = switchT > 0 ? switchT / switchDur : 0, rl = reloadT <= 0 ? 0 : w.shell ? Math.min(1, reloadSince / .2) * (.7 + .3 * Math.sin(Math.min(1, 1 - reloadT / reloadDur) * Math.PI))   // the pump gun stays tipped while shells go in, dipping with each
+      : Math.sin(Math.min(1, 1 - reloadT / reloadDur) * Math.PI);
     const mv = Math.min(1, Math.hypot(me.vx, me.vz) / 5);
     const bx = Math.cos(bob) * .012 * mv, by = Math.abs(Math.sin(bob)) * .012 * mv;
     // a scoped rifle comes up a little slower than iron sights, so bringing it to the eye can be seen
@@ -4581,7 +4734,7 @@ async function boot() {
   try { initFpArms(); } catch (e) { console.error(e); vm.arms = null; for (const m of vm.boxArms) m.visible = true; }
   setupMatch();
   showMenu();
-  netAutoJoin();
+  netAutoJoin(); netAutoHost();
   requestAnimationFrame(frame);
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
